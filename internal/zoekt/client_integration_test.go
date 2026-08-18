@@ -183,3 +183,84 @@ func TestLiveBadQueryIsDistinguishable(t *testing.T) {
 		t.Errorf("error = %v, want it to classify as ErrBadQuery", err)
 	}
 }
+
+// TestLiveContextLinesAreNewlineTerminated pins the framing the render layer
+// counts on. Before and After are blobs of whole lines; if the trailing
+// newline came or went, every rendered line number would shift by one.
+func TestLiveContextLinesAreNewlineTerminated(t *testing.T) {
+	t.Parallel()
+
+	client := liveClient(t)
+
+	result, err := client.Search(t.Context(), "ErrMissingZoektURL", zoekt.SearchOptions{NumContextLines: 2})
+	if err != nil {
+		t.Fatalf("Search() error = %v, want nil", err)
+	}
+	if len(result.Files) == 0 || len(result.Files[0].LineMatches) == 0 {
+		t.Fatalf("Files = %d, want at least one match", len(result.Files))
+	}
+
+	match := result.Files[0].LineMatches[0]
+
+	if !strings.HasSuffix(string(match.Line), "\n") {
+		t.Errorf("Line = %q, want it to end with a newline", string(match.Line))
+	}
+	if len(match.Before) > 0 && !strings.HasSuffix(string(match.Before), "\n") {
+		t.Errorf("Before = %q, want it to end with a newline", string(match.Before))
+	}
+	if len(match.After) > 0 && !strings.HasSuffix(string(match.After), "\n") {
+		t.Errorf("After = %q, want it to end with a newline", string(match.After))
+	}
+
+	// Two context lines means two lines in the blob, which is what lets the
+	// renderer number them backwards from LineNumber.
+	if before := strings.Count(string(match.Before), "\n"); before != 2 {
+		t.Errorf("Before carries %d lines, want 2", before)
+	}
+}
+
+// TestLiveFileCountIsTheTotalBeforeTruncation pins the assumption the whole
+// truncation notice rests on: MaxDocDisplayCount trims Files after the stats
+// were counted, so FileCount stays the pre-truncation total.
+func TestLiveFileCountIsTheTotalBeforeTruncation(t *testing.T) {
+	t.Parallel()
+
+	client := liveClient(t)
+
+	full, err := client.Search(t.Context(), "func", zoekt.SearchOptions{})
+	if err != nil {
+		t.Fatalf("Search() error = %v, want nil", err)
+	}
+	if full.FileCount < 2 {
+		t.Skipf("the sample index has %d matching files, need at least 2", full.FileCount)
+	}
+
+	capped, err := client.Search(t.Context(), "func", zoekt.SearchOptions{MaxDocDisplayCount: 1})
+	if err != nil {
+		t.Fatalf("Search() error = %v, want nil", err)
+	}
+
+	if len(capped.Files) != 1 {
+		t.Errorf("Files = %d, want the display cap to apply", len(capped.Files))
+	}
+	if capped.FileCount != full.FileCount {
+		t.Errorf("FileCount = %d under a display cap, want the untruncated total %d",
+			capped.FileCount, full.FileCount)
+	}
+}
+
+// TestLiveEveryRepositoryMatchesADot pins the query list_repos sends when it
+// was given no filter.
+func TestLiveEveryRepositoryMatchesADot(t *testing.T) {
+	t.Parallel()
+
+	client := liveClient(t)
+
+	list, err := client.List(t.Context(), "repo:.")
+	if err != nil {
+		t.Fatalf("List() error = %v, want nil", err)
+	}
+	if len(list.Repos) == 0 {
+		t.Error("Repos = 0, want every indexed repository")
+	}
+}
