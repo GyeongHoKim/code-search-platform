@@ -27,6 +27,7 @@ import (
 	"github.com/GyeongHoKim/code-search-platform/internal/config"
 	"github.com/GyeongHoKim/code-search-platform/internal/mcpserver"
 	"github.com/GyeongHoKim/code-search-platform/internal/version"
+	"github.com/GyeongHoKim/code-search-platform/internal/zoekt"
 )
 
 // readHeaderTimeout bounds how long a client may take to send its headers.
@@ -93,7 +94,12 @@ func serve(ctx context.Context, lookup config.Lookup, stderr io.Writer) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	server := mcpserver.New(cfg)
+	searcher := zoekt.New(zoekt.Options{
+		BaseURL: cfg.ZoektURL,
+		Timeout: cfg.Timeout,
+	})
+
+	server := mcpserver.New(cfg, searcher)
 
 	switch cfg.Transport {
 	case config.TransportStdio:
