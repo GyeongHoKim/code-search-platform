@@ -1,4 +1,25 @@
 {{- $full := include "code-search-platform.fullname" . -}}
+{{- if not (or .Values.mcp.auth.existingSecret .Values.mcp.auth.create) -}}
+{{- fail "mcp.auth: set mcp.auth.existingSecret, or mcp.auth.create with mcp.auth.token. Zoekt has no authentication of its own and this server is the only front door to it, so an unauthenticated deployment exposes every repository you indexed." -}}
+{{- end -}}
+{{- if and .Values.mcp.auth.create (not .Values.mcp.auth.existingSecret) }}
+{{- if not .Values.mcp.auth.token -}}
+{{- fail "mcp.auth.create is set but mcp.auth.token is empty. Generate one with: openssl rand -base64 32" -}}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $full }}-auth
+  labels:
+    {{- include "code-search-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp
+type: Opaque
+stringData:
+  # Comma separated, so a token can be rotated without a window in which every
+  # caller is broken.
+  token: {{ .Values.mcp.auth.token | quote }}
+---
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -46,6 +67,14 @@ spec:
               value: {{ .Values.mcp.maxResults | quote }}
             - name: CODE_SEARCH_TIMEOUT
               value: {{ .Values.mcp.timeout | quote }}
+            # The server refuses to start on the http transport without this,
+            # which is the point: there is no configuration of this chart that
+            # quietly serves the corpus to anyone who can reach the Ingress.
+            - name: CODE_SEARCH_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "code-search-platform.authSecret" . }}
+                  key: token
           ports:
             - name: http
               containerPort: {{ .Values.mcp.service.targetPort }}

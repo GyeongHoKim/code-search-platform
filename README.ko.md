@@ -90,7 +90,7 @@ kubectl -n code-search logs -f job/first-index
 
 ```bash
 claude mcp add --transport http code-search https://search.example.com/mcp/code-search \
-  --header "Authorization: Bearer $CODE_SEARCH_TOKEN"
+  --header "Authorization: Bearer $CODE_SEARCH_AUTH_TOKEN"
 ```
 
 **Codex** — `~/.codex/config.toml`:
@@ -98,6 +98,9 @@ claude mcp add --transport http code-search https://search.example.com/mcp/code-
 ```toml
 [mcp_servers.code-search]
 url = "https://search.example.com/mcp/code-search"
+# 연결 시점에 읽어 "Authorization: Bearer ..." 로 보냅니다. 토큰이
+# config.toml 에 남지 않습니다.
+bearer_token_env_var = "CODE_SEARCH_AUTH_TOKEN"
 ```
 
 **로컬 stdio** — 클라이언트가 바이너리를 직접 실행하는 경우:
@@ -159,6 +162,32 @@ Bitbucket은 `-project` 를 받습니다. 차트에 직접 배선한 것은 Gerr
 대해 확인한 것이 그것이기 때문입니다. 다른 호스트는 `zoekt-mirror-<kind> -help` 를 확인해
 `indexer.extraMirrorArgs` 로 넘기세요.
 
+## 인증
+
+`http` 전송은 `CODE_SEARCH_AUTH_TOKEN` 없이는 기동을 거부하고, 그 토큰을 bearer로 제시하지 않은
+요청에는 `401` 을 돌려줍니다. 끄는 설정은 없습니다. 이 서버가 자체 인증이 없는 인덱스로 향하는
+유일한 정문이기 때문입니다.
+
+```bash
+kubectl create secret generic code-search-token \
+  --from-literal=token="$(openssl rand -base64 32)"
+
+helm upgrade code-search ... --set mcp.auth.existingSecret=code-search-token
+```
+
+값은 **콤마로 구분된 목록**입니다. 이것이 모든 호출자가 한꺼번에 끊기는 구간 없이 토큰을 회전할 수
+있게 해 줍니다 — 새 토큰을 추가하고, 엔지니어들이 옮겨 가게 한 뒤, 옛 토큰을 제거합니다.
+
+의도적으로 하지 않는 것이 둘 있습니다. **레이트 리밋을 걸지 않습니다** — 정적 토큰은 정문이 허용하는
+속도만큼 추측당하므로, 제한은 거기서 거세요 (`nginx.ingress.kubernetes.io/limit-rps` 또는 Traefik
+미들웨어). 그리고 **누구인지 식별하지 않습니다** — 토큰을 가진 모든 호출자는 동일한 호출자이므로,
+감사 기록에 남는 것은 "누가"가 아니라 "그 토큰"입니다.
+
+둘 다 OAuth 2.1이 답이고, MCP 명세가 실제로 요구하는 형태도 그것입니다 — 서버가 사내 IdP의 토큰을
+검증하는 Resource Server가 됩니다. 지금 배선도 이미 SDK의 `auth.RequireBearerToken` 이므로, 그
+전환은 `internal/httpauth` 의 `auth.TokenVerifier` 하나를 교체하는 것으로 끝나고 나머지는 그대로
+남습니다. 가리킬 인가 서버가 생기기 전까지는 정적 토큰이 정직한 분량의 장치입니다.
+
 ## 접근 제어
 
 **여기가 제대로 해야 하는 부분이고, 정규식은 그 답이 아닙니다.**
@@ -190,6 +219,7 @@ Zoekt 인덱스에는 리포지터리별 권한 개념이 없습니다. 한번 �
 | `CODE_SEARCH_ZOEKT_URL` | *(필수)* | `-rpc` 로 띄운 `zoekt-webserver` 의 base URL |
 | `CODE_SEARCH_TRANSPORT` | `stdio` | `stdio` 또는 `http` |
 | `CODE_SEARCH_ADDR` | `127.0.0.1:8080` | 리슨 주소, `http` 전송에만 사용 |
+| `CODE_SEARCH_AUTH_TOKEN` | *(`http` 에서 필수)* | 호출자가 제시해야 하는 bearer 토큰, 콤마 구분 |
 | `CODE_SEARCH_TIMEOUT` | `30s` | Zoekt 요청 하나의 시간 제한 |
 | `CODE_SEARCH_MAX_RESULTS` | `50` | 검색당 파일 매치 상한 (최대 500) |
 | `CODE_SEARCH_CONTEXT_LINES` | `3` | 매치 주변 라인 수 (최대 50) |

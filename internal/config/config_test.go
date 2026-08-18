@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -18,7 +19,10 @@ func env(vars map[string]string) config.Lookup {
 	}
 }
 
-const zoektURL = "http://zoekt:6070"
+const (
+	zoektURL  = "http://zoekt:6070"
+	authToken = "test-token"
+)
 
 func TestLoadDefaults(t *testing.T) {
 	t.Parallel()
@@ -91,6 +95,21 @@ func TestLoadRejects(t *testing.T) {
 			},
 			want: config.ErrUnknownTransport,
 		},
+		"http transport without an auth token": {
+			vars: map[string]string{
+				config.EnvPrefix + "ZOEKT_URL": zoektURL,
+				config.EnvPrefix + "TRANSPORT": "http",
+			},
+			want: config.ErrMissingAuthToken,
+		},
+		"http transport with a blank auth token": {
+			vars: map[string]string{
+				config.EnvPrefix + "ZOEKT_URL":  zoektURL,
+				config.EnvPrefix + "TRANSPORT":  "http",
+				config.EnvPrefix + "AUTH_TOKEN": "  ,  ,",
+			},
+			want: config.ErrMissingAuthToken,
+		},
 		"non numeric max results": {
 			vars: map[string]string{
 				config.EnvPrefix + "ZOEKT_URL":   zoektURL,
@@ -161,9 +180,10 @@ func TestLoadHTTPTransport(t *testing.T) {
 	t.Parallel()
 
 	cfg, err := config.Load(env(map[string]string{
-		config.EnvPrefix + "ZOEKT_URL": zoektURL,
-		config.EnvPrefix + "TRANSPORT": "HTTP",
-		config.EnvPrefix + "ADDR":      ":9090",
+		config.EnvPrefix + "ZOEKT_URL":  zoektURL,
+		config.EnvPrefix + "TRANSPORT":  "HTTP",
+		config.EnvPrefix + "ADDR":       ":9090",
+		config.EnvPrefix + "AUTH_TOKEN": authToken,
 	}))
 	if err != nil {
 		t.Fatalf("Load() error = %v, want nil", err)
@@ -174,5 +194,47 @@ func TestLoadHTTPTransport(t *testing.T) {
 	}
 	if cfg.Addr != ":9090" {
 		t.Errorf("Addr = %q, want %q", cfg.Addr, ":9090")
+	}
+	if len(cfg.AuthTokens) != 1 || cfg.AuthTokens[0] != authToken {
+		t.Errorf("AuthTokens = %v, want [%q]", cfg.AuthTokens, authToken)
+	}
+}
+
+func TestLoadSplitsAuthTokens(t *testing.T) {
+	t.Parallel()
+
+	// A comma separated list is what makes rotation possible without a window
+	// in which every caller is broken: add the new token, let callers move,
+	// then drop the old one.
+	cfg, err := config.Load(env(map[string]string{
+		config.EnvPrefix + "ZOEKT_URL":  zoektURL,
+		config.EnvPrefix + "TRANSPORT":  "http",
+		config.EnvPrefix + "AUTH_TOKEN": "  old  , new ,, ",
+	}))
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+
+	want := []string{"old", "new"}
+	if !slices.Equal(cfg.AuthTokens, want) {
+		t.Errorf("AuthTokens = %v, want %v", cfg.AuthTokens, want)
+	}
+}
+
+func TestLoadDoesNotRequireAnAuthTokenOnStdio(t *testing.T) {
+	t.Parallel()
+
+	// Stdio has no network to guard: the client spawned this process, so the
+	// caller is already whoever owns it. Demanding a token there would only
+	// make running the server locally harder.
+	cfg, err := config.Load(env(map[string]string{
+		config.EnvPrefix + "ZOEKT_URL": zoektURL,
+	}))
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+
+	if len(cfg.AuthTokens) != 0 {
+		t.Errorf("AuthTokens = %v, want none", cfg.AuthTokens)
 	}
 }

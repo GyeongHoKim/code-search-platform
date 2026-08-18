@@ -25,6 +25,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/GyeongHoKim/code-search-platform/internal/config"
+	"github.com/GyeongHoKim/code-search-platform/internal/httpauth"
 	"github.com/GyeongHoKim/code-search-platform/internal/mcpserver"
 	"github.com/GyeongHoKim/code-search-platform/internal/version"
 	"github.com/GyeongHoKim/code-search-platform/internal/zoekt"
@@ -144,27 +145,46 @@ func serveStdio(ctx context.Context, server *mcp.Server, logger *slog.Logger, cf
 	return nil
 }
 
+// httpHandler builds what the http transport answers with: the MCP transport
+// behind the bearer token guard.
+//
+// The two are wired together here rather than in serveHTTP so that a test can
+// exercise this exact pairing without binding a port. Nothing reaches the
+// server without passing the guard.
+func httpHandler(server *mcp.Server, cfg *config.Config) http.Handler {
+	handler := mcp.NewStreamableHTTPHandler(
+		// Called per request, which is the hook where per-caller
+		// authorisation belongs once tokens carry an identity.
+		func(*http.Request) *mcp.Server { return server },
+		nil,
+	)
+
+	return httpauth.RequireToken(cfg.AuthTokens)(handler)
+}
+
 // serveHTTP serves Streamable HTTP on the configured address.
 //
 // This is the transport a deployed instance uses: the server runs in the
 // cluster and agents reach it over the network, so it is also the layer where
 // authentication and audit logging belong.
 func serveHTTP(ctx context.Context, server *mcp.Server, logger *slog.Logger, cfg *config.Config) error {
-	handler := mcp.NewStreamableHTTPHandler(
-		func(*http.Request) *mcp.Server { return server },
-		nil,
-	)
-
 	httpServer := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           handler,
+		Handler:           httpHandler(server, cfg),
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
 	listening := make(chan error, 1)
 	go func() { listening <- httpServer.ListenAndServe() }()
 
-	logger.Info("serving over http", "addr", cfg.Addr, "zoekt", cfg.ZoektURL, "version", version.Version)
+	// The count, never a token. A diagnostic that prints a credential is a
+	// credential in every log aggregator the operator owns.
+	logger.Info("serving over http",
+		"addr", cfg.Addr,
+		"zoekt", cfg.ZoektURL,
+		"version", version.Version,
+		"accepted_tokens", len(cfg.AuthTokens),
+	)
 
 	select {
 	case err := <-listening:

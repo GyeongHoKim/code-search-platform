@@ -38,3 +38,12 @@ app.kubernetes.io/part-of: code-search-platform
 {{- define "code-search-platform.hasCredentials" -}}
 {{- if or .Values.indexer.credentials.existingSecret .Values.indexer.credentials.create -}}true{{- end -}}
 {{- end -}}
+
+{{/* The name of the Secret holding the MCP server's bearer token. */}}
+{{- define "code-search-platform.authSecret" -}}
+{{- if .Values.mcp.auth.existingSecret -}}
+{{- .Values.mcp.auth.existingSecret -}}
+{{- else -}}
+{{- printf "%s-auth" (include "code-search-platform.fullname" .) -}}
+{{- end -}}
+{{- end -}}

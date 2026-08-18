@@ -83,6 +83,7 @@ cmd/code-search-mcp/        entry point: flags, environment, transport selection
 internal/config/            environment parsing and validation
 internal/zoekt/             the Zoekt JSON API client -- HTTP lives here and nowhere else
 internal/render/            Zoekt types to the compact text a model reads
+internal/httpauth/          the bearer token guard on the http transport
 internal/mcpserver/         tool definitions and registration
 internal/version/           ldflags-injected build stamps
 internal/tools/fetchdocs/   vendors docs/zoekt/ at a pinned revision
