@@ -1,0 +1,125 @@
+# Release. Driven by a tag; nothing here runs on a branch push.
+#
+#   git tag v1.2.3 && git push origin v1.2.3
+#
+# The tag is the only version source. goreleaser cuts the GitHub Release with
+# cross-compiled binaries; the image job pushes a multi-arch image to GHCR from
+# the same Dockerfile used locally.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
+
+jobs:
+  # The tag has not been verified by anything at this point -- a tag can be
+  # pushed to a commit that never passed CI. Re-run the gates before publishing.
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: jdx/mise-action@v4
+
+      - run: just ci
+
+  binaries:
+    name: Binaries and GitHub Release
+    needs: [verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # goreleaser builds the changelog from the log, so a shallow clone
+          # produces release notes with nothing in them.
+          fetch-depth: 0
+
+      - uses: jdx/mise-action@v4
+
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  image:
+    name: Container image
+    needs: [verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=long
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  chart:
+    name: Helm chart
+    needs: [verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: azure/setup-helm@v5
+
+      # The chart version, the appVersion and the image tag are the same tag.
+      # Anything else produces a chart that installs an image it was never
+      # rendered against.
+      - name: Stamp the tag into the chart
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          helm package deploy/helm             --version "$version"             --app-version "$version"             --destination dist
+
+      - name: Push to GHCR
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}"             | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          version="${TAG#v}"
+          helm push "dist/code-search-platform-${version}.tgz"             oci://ghcr.io/${{ github.repository_owner }}/charts
