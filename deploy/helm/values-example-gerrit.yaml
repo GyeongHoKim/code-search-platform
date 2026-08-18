@@ -1,0 +1,40 @@
+# A worked example: Gerrit behind a service account, Traefik on a path prefix.
+#
+# This is the shape of a real internal deployment. Copy it, change the four
+# values that are yours, and delete the rest.
+
+indexer:
+  hostKind: gerrit
+  hostURL: https://gerrit.example.com
+  activeOnly: true
+  # Gerrit's own metadata repositories are ACL configuration, not code.
+  exclude: "^(All-Projects|All-Users)$"
+  # Only repositories the service account can read are mirrored at all; this
+  # regex just keeps obvious noise out of the corpus.
+  include: "^(platform|services)/"
+  credentials:
+    # kubectl create secret generic gerrit-codesearch \
+    #   --from-literal=credentials='svc-codesearch:<gerrit-http-password>'
+    #
+    # Note the password is the one Gerrit generates under Settings -> HTTP
+    # Credentials, not an LDAP password, on any host whose
+    # git_basic_auth_policy is HTTP.
+    existingSecret: gerrit-codesearch
+
+zoekt:
+  persistence:
+    size: 100Gi
+
+mcp:
+  replicas: 2
+  contextLines: 3
+
+ingress:
+  enabled: true
+  kind: traefik-ingressroute
+  host: search.example.com
+  path: /mcp/code-search
+  entryPoints:
+    - websecure
+  tls:
+    enabled: true

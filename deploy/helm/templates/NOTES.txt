@@ -1,0 +1,32 @@
+{{ .Chart.Name }} {{ .Chart.Version }} installed as release {{ .Release.Name }}.
+
+The MCP server is reachable inside the cluster at:
+
+  http://{{ include "code-search-platform.fullname" . }}-mcp.{{ .Release.Namespace }}.svc:{{ .Values.mcp.service.port }}
+
+{{ if .Values.indexer.enabled -}}
+The index is empty until the indexer has run. It is scheduled at {{ .Values.indexer.schedule | quote }};
+to build it now rather than waiting:
+
+  kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "code-search-platform.fullname" . }}-indexer first-index
+  kubectl -n {{ .Release.Namespace }} logs -f job/first-index
+
+{{ else -}}
+The indexer is disabled, so nothing populates /data/index. Enable it, or write
+the index into that volume yourself.
+
+{{ end -}}
+{{- if .Values.ingress.enabled }}
+Agents reach it at https://{{ .Values.ingress.host }}{{ .Values.ingress.path }}
+
+  claude mcp add --transport http code-search https://{{ .Values.ingress.host }}{{ .Values.ingress.path }}
+{{- else }}
+No Ingress is enabled, so nothing outside the cluster can reach it yet. To try
+it from your machine:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "code-search-platform.fullname" . }}-mcp {{ .Values.mcp.service.port }}:{{ .Values.mcp.service.port }}
+{{- end }}
+
+Zoekt itself is deliberately a ClusterIP with no Ingress. It has no
+authentication of its own, so anything that can reach it can read every
+repository you indexed. Keep it that way.

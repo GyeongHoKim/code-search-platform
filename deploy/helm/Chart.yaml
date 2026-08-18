@@ -1,0 +1,17 @@
+apiVersion: v2
+name: code-search-platform
+description: Self-hosted code search for coding agents -- Zoekt, an indexer for your Git host, and an MCP server in front of both
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/GyeongHoKim/code-search-platform
+sources:
+  - https://github.com/GyeongHoKim/code-search-platform
+keywords:
+  - mcp
+  - code-search
+  - zoekt
+  - agents
+maintainers:
+  - name: GyeongHo Kim
+    url: https://github.com/GyeongHoKim

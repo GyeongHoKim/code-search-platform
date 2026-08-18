@@ -1,0 +1,167 @@
+# Default values for code-search-platform.
+#
+# Everything site specific lives here. The chart itself carries no hostname, no
+# registry and no repository name, which is what lets the same chart run in a
+# company that has never heard of the one it was written in.
+
+nameOverride: ""
+fullnameOverride: ""
+
+imagePullSecrets: []
+
+# ---------------------------------------------------------------- zoekt
+#
+# The search engine. It is never exposed outside the cluster: the MCP server is
+# the only thing that talks to it, and the only thing that needs to.
+zoekt:
+  image:
+    repository: ghcr.io/sourcegraph/zoekt
+    # Pinned rather than :latest, so a pod restart cannot change the engine
+    # under an index that was built by a different version.
+    tag: "0.0.0-20260812144518-c6cd01494dc0"
+    pullPolicy: IfNotPresent
+
+  # -rpc is what puts /api/search there at all. Without it the server answers
+  # HTML and every request fails in a way that looks like a routing bug.
+  extraArgs: []
+
+  service:
+    port: 6070
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      memory: 4Gi
+
+  persistence:
+    enabled: true
+    size: 50Gi
+    # Empty means the cluster default. The indexer and the server both mount
+    # this, so on a multi-node cluster it has to be ReadWriteMany -- or both
+    # have to be pinned to one node.
+    storageClass: ""
+    accessMode: ReadWriteOnce
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ---------------------------------------------------------------- indexer
+#
+# A CronJob that mirrors your Git host and refreshes the index.
+indexer:
+  enabled: true
+
+  # Nightly. Mirroring hundreds of repositories is not a thing to do hourly,
+  # and an index that is a day old is still an index.
+  schedule: "0 2 * * *"
+
+  # gerrit | gitea | gitlab | github | bitbucket-server | none
+  #
+  # "none" skips mirroring and only re-indexes whatever is already under
+  # /data/repos, for a site that populates that volume some other way.
+  hostKind: gerrit
+
+  # Base URL of the Git host, e.g. https://gerrit.example.com
+  hostURL: ""
+
+  # Which repositories to mirror.
+  #
+  # These are the SECOND line of defence, not the first. Give the service
+  # account read access to exactly the repositories you intend to index, and
+  # let its permissions decide -- then a mistake in a regex cannot widen the
+  # corpus, because the clone simply fails. See the access control section of
+  # the README.
+  include: ""
+  exclude: ""
+
+  # Gerrit only: mirror projects the server reports as ACTIVE.
+  activeOnly: true
+
+  # Host-specific mirror flags, passed through verbatim.
+  #
+  # The zoekt-mirror-* tools do not share one flag set -- gerrit takes -active
+  # and -http-credentials, gitlab and github take -token, bitbucket-server takes
+  # -project. Only the Gerrit flags above are wired into this chart because they
+  # are the ones that have been verified against a real host. For any other
+  # host, run `zoekt-mirror-<kind> -help` and put what it wants here, e.g.
+  #
+  #   extraMirrorArgs:
+  #     - -token=/secrets/token
+  #     - -org=my-org
+  extraMirrorArgs: []
+
+  # Which branch to index. Indexing every branch multiplies the index size for
+  # a corpus an agent almost never wants.
+  branches: HEAD
+
+  credentials:
+    # Name of an existing Secret with a "credentials" key holding "user:password".
+    # Preferred: it keeps the value out of your values file and out of git.
+    existingSecret: ""
+    # Or let the chart create one. Convenient for a first run, and a bad idea
+    # for anything else.
+    create: false
+    user: ""
+    password: ""
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      memory: 4Gi
+
+# ---------------------------------------------------------------- mcp server
+mcp:
+  image:
+    repository: ghcr.io/gyeonghokim/code-search-platform
+    # Empty means the chart's appVersion. Override with an immutable tag.
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  replicas: 2
+
+  service:
+    port: 80
+    targetPort: 8080
+
+  # How many lines surround each match. The single most important knob for how
+  # many tokens a search costs the agent that ran it.
+  contextLines: 3
+  maxResults: 50
+  timeout: 30s
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ---------------------------------------------------------------- ingress
+#
+# The MCP server is the only component that is ever exposed.
+ingress:
+  enabled: false
+  # ingress | traefik-ingressroute
+  kind: ingress
+  className: ""
+  host: ""
+  path: /
+  # Used by the standard Ingress only.
+  pathType: Prefix
+  annotations: {}
+  # entryPoints for the Traefik IngressRoute.
+  entryPoints:
+    - websecure
+  tls:
+    enabled: false
+    secretName: ""

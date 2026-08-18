@@ -1,0 +1,124 @@
+{{- $full := include "code-search-platform.fullname" . -}}
+{{- if .Values.zoekt.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $full }}-index
+  labels:
+    {{- include "code-search-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: zoekt
+spec:
+  accessModes:
+    - {{ .Values.zoekt.persistence.accessMode }}
+  {{- with .Values.zoekt.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.zoekt.persistence.size }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $full }}-zoekt
+  labels:
+    {{- include "code-search-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: zoekt
+spec:
+  # One replica on purpose. The index is a read-write volume that the CronJob
+  # also writes, and two servers on one RWO volume cannot both be scheduled.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "code-search-platform.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: zoekt
+  template:
+    metadata:
+      labels:
+        {{- include "code-search-platform.labels" . | nindent 8 }}
+        app.kubernetes.io/component: zoekt
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: zoekt
+          image: "{{ .Values.zoekt.image.repository }}:{{ .Values.zoekt.image.tag }}"
+          imagePullPolicy: {{ .Values.zoekt.image.pullPolicy }}
+          # -rpc is not optional: it is what serves /api/search. The upstream
+          # image's default command includes it, and it is repeated here so
+          # that overriding extraArgs cannot silently drop it.
+          args:
+            - zoekt-webserver
+            - -index
+            - /data/index
+            - -rpc
+            {{- with .Values.zoekt.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.zoekt.service.port }}
+          volumeMounts:
+            - name: index
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.zoekt.resources | nindent 12 }}
+      volumes:
+        - name: index
+          {{- if .Values.zoekt.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ $full }}-index
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.zoekt.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.zoekt.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.zoekt.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $full }}-zoekt
+  labels:
+    {{- include "code-search-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: zoekt
+spec:
+  # ClusterIP, always. Zoekt has no authentication of its own; the MCP server
+  # in front of it is what decides who may search. Exposing this Service is
+  # the one change that turns this chart into a data leak.
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.zoekt.service.port }}
+      targetPort: http
+  selector:
+    app.kubernetes.io/name: {{ include "code-search-platform.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: zoekt

@@ -1,0 +1,38 @@
+# An Argo CD Application that installs this chart from a values file kept in a
+# private config repository.
+#
+# The public chart carries no hostnames and no credentials; everything that is
+# yours lives in the repository this Application points at. That split is what
+# lets you track upstream without ever rebasing your secrets.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: code-search-platform
+  namespace: argocd
+spec:
+  project: default
+
+  sources:
+    # The chart, straight from the upstream repository at a pinned revision.
+    - repoURL: https://github.com/GyeongHoKim/code-search-platform.git
+      targetRevision: v0.1.0
+      path: deploy/helm
+      helm:
+        valueFiles:
+          - $config/code-search/values.yaml
+
+    # Your values. Keep this repository private.
+    - repoURL: https://git.example.com/infra/gitops.git
+      targetRevision: main
+      ref: config
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: code-search
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

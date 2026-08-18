@@ -1,0 +1,13 @@
+.git
+.github
+.vscode
+bin
+dist
+deploy
+docs
+*.md
+coverage.out
+coverage.html
+.env
+.env.local
+.dev

@@ -1,0 +1,67 @@
+# Release configuration. Driven by a tag; never run by hand.
+#
+# The container image is not built here -- .github/workflows/release.yml builds
+# it with buildx from the same Dockerfile `just image` uses, so there is one
+# image definition rather than two that can disagree.
+version: 2
+
+project_name: code-search-platform
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: code-search-mcp
+    main: ./cmd/code-search-mcp
+    binary: code-search-mcp
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/GyeongHoKim/code-search-platform/internal/version.Version={{ .Version }}
+      - -X github.com/GyeongHoKim/code-search-platform/internal/version.Commit={{ .Commit }}
+      - -X github.com/GyeongHoKim/code-search-platform/internal/version.Date={{ .Date }}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: default
+    ids:
+      - code-search-mcp
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - README.md
+      - LICENSE
+      - NOTICE
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+
+release:
+  draft: false
+  prerelease: auto

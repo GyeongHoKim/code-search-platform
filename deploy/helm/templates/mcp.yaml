@@ -1,0 +1,89 @@
+{{- $full := include "code-search-platform.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $full }}-mcp
+  labels:
+    {{- include "code-search-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp
+spec:
+  replicas: {{ .Values.mcp.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "code-search-platform.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: mcp
+  template:
+    metadata:
+      labels:
+        {{- include "code-search-platform.labels" . | nindent 8 }}
+        app.kubernetes.io/component: mcp
+      {{- with .Values.mcp.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: mcp
+          image: "{{ .Values.mcp.image.repository }}:{{ .Values.mcp.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.mcp.image.pullPolicy }}
+          env:
+            # The only address of Zoekt anyone needs. It is a ClusterIP name,
+            # so this is also the reason the engine never needs an Ingress.
+            - name: CODE_SEARCH_ZOEKT_URL
+              value: "http://{{ $full }}-zoekt:{{ .Values.zoekt.service.port }}"
+            - name: CODE_SEARCH_TRANSPORT
+              value: http
+            - name: CODE_SEARCH_ADDR
+              value: "0.0.0.0:{{ .Values.mcp.service.targetPort }}"
+            - name: CODE_SEARCH_CONTEXT_LINES
+              value: {{ .Values.mcp.contextLines | quote }}
+            - name: CODE_SEARCH_MAX_RESULTS
+              value: {{ .Values.mcp.maxResults | quote }}
+            - name: CODE_SEARCH_TIMEOUT
+              value: {{ .Values.mcp.timeout | quote }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.mcp.service.targetPort }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.mcp.resources | nindent 12 }}
+      {{- with .Values.mcp.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.mcp.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.mcp.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $full }}-mcp
+  labels:
+    {{- include "code-search-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.mcp.service.port }}
+      targetPort: http
+  selector:
+    app.kubernetes.io/name: {{ include "code-search-platform.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: mcp

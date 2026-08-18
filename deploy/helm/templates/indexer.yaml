@@ -1,0 +1,110 @@
+{{- if .Values.indexer.enabled }}
+{{- $full := include "code-search-platform.fullname" . -}}
+{{- if and .Values.indexer.credentials.create (not .Values.indexer.credentials.existingSecret) }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $full }}-git-credentials
+  labels:
+    {{- include "code-search-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: indexer
+type: Opaque
+stringData:
+  # The format zoekt-mirror-* expects from -http-credentials.
+  credentials: {{ printf "%s:%s" .Values.indexer.credentials.user .Values.indexer.credentials.password | quote }}
+---
+{{- end }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $full }}-indexer
+  labels:
+    {{- include "code-search-platform.labels" . | nindent 4 }}
+    app.kubernetes.io/component: indexer
+spec:
+  schedule: {{ .Values.indexer.schedule | quote }}
+  # A run that overlaps the previous one would put two processes into the same
+  # index directory.
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            {{- include "code-search-platform.labels" . | nindent 12 }}
+            app.kubernetes.io/component: indexer
+        spec:
+          restartPolicy: Never
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: indexer
+              image: "{{ .Values.zoekt.image.repository }}:{{ .Values.zoekt.image.tag }}"
+              imagePullPolicy: {{ .Values.zoekt.image.pullPolicy }}
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  {{- if eq .Values.indexer.hostKind "none" }}
+                  echo "mirroring disabled (hostKind=none); reindexing /data/repos as it stands"
+                  {{- else }}
+                  echo "mirroring from {{ .Values.indexer.hostURL }}"
+                  zoekt-mirror-{{ .Values.indexer.hostKind }} \
+                    -dest /data/repos \
+                    {{- if eq .Values.indexer.hostKind "gerrit" }}
+                    {{- if .Values.indexer.activeOnly }}
+                    -active \
+                    {{- end }}
+                    {{- with .Values.indexer.include }}
+                    -name {{ . | quote }} \
+                    {{- end }}
+                    {{- with .Values.indexer.exclude }}
+                    -exclude {{ . | quote }} \
+                    {{- end }}
+                    {{- end }}
+                    {{- if include "code-search-platform.hasCredentials" . }}
+                    -http-credentials /secrets/credentials \
+                    {{- end }}
+                    {{- range .Values.indexer.extraMirrorArgs }}
+                    {{ . }} \
+                    {{- end }}
+                    {{ .Values.indexer.hostURL | quote }}
+                  {{- end }}
+                  # Index every mirrored repository. Driven off the filesystem
+                  # rather than the mirror's stdout, so a repository that was
+                  # already up to date is still reindexed after an engine
+                  # upgrade changed the index format.
+                  find /data/repos -type d -name '*.git' -prune | while read -r repo; do
+                    echo "indexing ${repo}"
+                    zoekt-git-index -index /data/index -branches {{ .Values.indexer.branches | quote }} "${repo}"
+                  done
+              volumeMounts:
+                - name: index
+                  mountPath: /data
+                {{- if include "code-search-platform.hasCredentials" . }}
+                - name: credentials
+                  mountPath: /secrets
+                  readOnly: true
+                {{- end }}
+              resources:
+                {{- toYaml .Values.indexer.resources | nindent 16 }}
+          volumes:
+            - name: index
+              {{- if .Values.zoekt.persistence.enabled }}
+              persistentVolumeClaim:
+                claimName: {{ $full }}-index
+              {{- else }}
+              emptyDir: {}
+              {{- end }}
+            {{- if include "code-search-platform.hasCredentials" . }}
+            - name: credentials
+              secret:
+                secretName: {{ include "code-search-platform.credentialsSecret" . }}
+            {{- end }}
+{{- end }}

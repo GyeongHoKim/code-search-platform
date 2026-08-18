@@ -1,0 +1,41 @@
+# Local development loop: a Zoekt with this repository indexed into it.
+#
+#   just dev-up      index and serve on http://127.0.0.1:6070
+#   just dev-down    stop and discard the index
+#
+# The corpus is this repository itself. That needs no network, and it makes the
+# first search you run against a new tool return something you can recognise.
+
+services:
+  # One-shot. Builds the index, exits, and the server waits for it to succeed.
+  indexer:
+    image: ghcr.io/sourcegraph/zoekt:0.0.0-20260812144518-c6cd01494dc0
+    volumes:
+      - index:/data/index
+      - .:/src:ro
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        # The bind mount is owned by the host user, not by the image's zoekt
+        # user, and git refuses to read a repository it does not own.
+        git config --global --add safe.directory /src
+        zoekt-git-index -index /data/index -branches HEAD /src
+    restart: "no"
+
+  zoekt:
+    image: ghcr.io/sourcegraph/zoekt:0.0.0-20260812144518-c6cd01494dc0
+    # The image's default command already includes -rpc, which is what puts
+    # /api/search there at all. Stated explicitly so nobody has to know that.
+    command: ["zoekt-webserver", "-index", "/data/index", "-rpc"]
+    ports:
+      - "127.0.0.1:6070:6070"
+    volumes:
+      - index:/data/index
+    depends_on:
+      indexer:
+        condition: service_completed_successfully
+
+volumes:
+  index:
