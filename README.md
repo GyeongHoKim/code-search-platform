@@ -128,6 +128,22 @@ something has to do that compaction. Tokens are a budget.
 `lang:`, `sym:`, negation, boolean grouping. There is deliberately no second query language layered
 on top of it.
 
+**No tool takes a result limit or a context-line count.** Those come from the environment, because
+the token budget belongs to whoever runs the server: a caller that could raise them would make
+`CODE_SEARCH_MAX_RESULTS` a default rather than a ceiling. An agent that wants more narrows the
+query or reads the file. When a search is truncated, the first line says so and how many files
+matched in total.
+
+`read_file` returns at most 400 lines per call and says where to resume. Tokens are spent the
+moment they arrive, and a caller cannot know a file is eight thousand lines before asking; being
+handed the first 400 costs one more round trip, being handed all of it cannot be undone.
+
+`find_symbol` distinguishes "no such symbol" from "this index cannot answer that". `sym:` only
+matches when the index was built with ctags on `$PATH`, and Zoekt answers a symbol query on an
+index without it with silence rather than an error. When nothing matches, the tool checks whether
+the repositories carry symbol data and says which do not. `list_repos` reports the same thing as
+`symbols=yes` or `symbols=no`, so an agent can tell before it asks.
+
 ## Supported Git hosts
 
 Mirroring is done by Zoekt's own `zoekt-mirror-*` tools, so the list is theirs:
