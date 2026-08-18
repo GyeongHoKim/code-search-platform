@@ -2,7 +2,10 @@ module github.com/GyeongHoKim/code-search-platform
 
 go 1.26.6
 
-require github.com/modelcontextprotocol/go-sdk v1.7.0
+require (
+	github.com/google/go-cmp v0.7.0
+	github.com/modelcontextprotocol/go-sdk v1.7.0
+)
 
 require (
 	github.com/google/jsonschema-go v0.4.3 // indirect
