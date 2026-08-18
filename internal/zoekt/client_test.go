@@ -612,3 +612,45 @@ func TestListRejectsABodyThatIsNotOneJSONValue(t *testing.T) {
 		})
 	}
 }
+
+// filenameMatchJSON is a match on a path: FileName is set and Line is empty.
+const filenameMatchJSON = `{
+  "Result": {
+    "FileCount": 1,
+    "MatchCount": 1,
+    "Files": [
+      {
+        "FileName": "internal/render/render.go",
+        "Repository": "src",
+        "LineMatches": [
+          {
+            "Line": "",
+            "LineNumber": 0,
+            "FileName": true
+          }
+        ]
+      }
+    ]
+  }
+}`
+
+func TestSearchDecodesAMatchOnTheFilename(t *testing.T) {
+	t.Parallel()
+
+	client := newClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		respondRaw(t, w, filenameMatchJSON)
+	})
+
+	result, err := client.Search(t.Context(), "file:render", zoekt.SearchOptions{})
+	if err != nil {
+		t.Fatalf("Search() error = %v, want nil", err)
+	}
+
+	if len(result.Files) != 1 || len(result.Files[0].LineMatches) != 1 {
+		t.Fatalf("Files = %d, want one file with one line match", len(result.Files))
+	}
+
+	if got := result.Files[0].LineMatches[0].FileName; !got {
+		t.Errorf("LineMatch.FileName = %v, want true", got)
+	}
+}

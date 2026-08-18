@@ -93,6 +93,9 @@ type LineMatch struct {
 	LineFragments []LineFragment
 
 	LineNumber int
+
+	// FileName reports a match on the path, in which case Line is empty.
+	FileName bool
 }
 
 // LineFragment locates one match within a line, and names the symbol it is
