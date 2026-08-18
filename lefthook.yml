@@ -1,0 +1,18 @@
+# Git hooks. Installed by `just setup`, or `lefthook install` on its own.
+#
+# The hooks are deliberately thin. Anything slow belongs in CI, where it does
+# not stand between someone and a commit -- the point here is to catch the
+# mistakes that are cheapest to fix at the moment they are made.
+
+pre-commit:
+  parallel: true
+  commands:
+    formatting:
+      run: just fmt-check
+    linting:
+      run: just lint
+
+pre-push:
+  commands:
+    everything-ci-runs:
+      run: just ci

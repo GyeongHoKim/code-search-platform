@@ -1,0 +1,26 @@
+{
+  "recommendations": [
+    // Go language support: gopls, dlv, test runner, coverage.
+    "golang.go",
+
+    // justfile syntax and recipe running.
+    "nefrob.vscode-just-syntax",
+
+    // mise.toml and any other TOML that shows up.
+    "tamasfe.even-better-toml",
+
+    // .golangci.yml, lefthook.yml, .goreleaser.yaml, workflows, the Helm chart.
+    "redhat.vscode-yaml",
+
+    // Workflow authoring and run status for .github/workflows.
+    "github.vscode-github-actions",
+
+    // Dockerfile and compose.
+    "ms-azuretools.vscode-docker",
+
+    // VS Code does not read .editorconfig on its own. Without this the LF and
+    // UTF-8 rules in that file apply to everyone except the person who has
+    // this repository open.
+    "editorconfig.editorconfig"
+  ]
+}

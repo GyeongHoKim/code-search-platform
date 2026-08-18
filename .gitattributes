@@ -1,0 +1,13 @@
+# The repository stores LF regardless of the checkout platform. .editorconfig
+# tells editors the same thing; this is the layer that survives an editor that
+# does not read it.
+* text=auto eol=lf
+
+# Vendored Zoekt reference material. `just docs-fetch` writes exactly what the
+# upstream server sent, so git must not rewrite a byte of it.
+docs/zoekt/** -text
+
+# Binary assets, so git never guesses.
+*.png binary
+*.jpg binary
+*.gif binary

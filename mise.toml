@@ -1,0 +1,33 @@
+# Toolchain for code-search-platform.
+#
+# This file is the single source of truth for tool versions -- local development,
+# git hooks, and CI (via jdx/mise-action) all resolve versions from here.
+#
+#   mise install     install everything pinned below
+#   just --list      see available development tasks
+
+[tools]
+# Go has no LTS line; the current stable release is the pin.
+go = "1.26.6"
+golangci-lint = "2.12.2"
+just = "1.58.0"
+goreleaser = "2.17.1"
+lefthook = "2.1.10"
+
+# Only used by `just helm-lint` / `just helm-template`. CI installs it with
+# azure/setup-helm instead, because a lint job has no reason to resolve the
+# whole Go toolchain first.
+helm = "4.2.4"
+
+# Note: CGO_ENABLED is deliberately not set here. Released binaries are static,
+# but goreleaser and the Dockerfile set CGO_ENABLED=0 per build -- setting it
+# globally would also apply to `go test -race`, which requires cgo and would
+# fail outright.
+#
+# Note: Node is deliberately absent. This project ships a container image, not
+# an npm package, and every helper that would have been a .mjs script is a Go
+# program under internal/tools instead.
+
+[settings]
+# Never let a stray .go-version shadow the pins above.
+idiomatic_version_file_enable_tools = []

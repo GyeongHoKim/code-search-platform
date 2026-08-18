@@ -1,0 +1,18 @@
+# Build output.
+/bin/
+/dist/
+
+# Coverage profiles.
+coverage.out
+coverage.html
+
+# Local configuration. Never commit credentials.
+.env
+.env.local
+
+# Local development index, written by `just dev-up`.
+/.dev/
+
+# Editor scratch.
+*.swp
+.DS_Store

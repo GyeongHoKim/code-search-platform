@@ -1,0 +1,89 @@
+{
+  "version": "2.0.0",
+  // Everything routes through just, so these stay identical to what CI runs.
+  "tasks": [
+    {
+      "label": "just: ci",
+      "detail": "Everything CI runs",
+      "type": "shell",
+      "command": "just ci",
+      "group": "test",
+      "problemMatcher": ["$go"]
+    },
+    {
+      "label": "just: build",
+      "type": "shell",
+      "command": "just build",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$go"]
+    },
+    {
+      "label": "just: test",
+      "type": "shell",
+      "command": "just test",
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": ["$go"]
+    },
+    {
+      "label": "just: test-race",
+      "type": "shell",
+      "command": "just test-race",
+      "group": "test",
+      "problemMatcher": ["$go"]
+    },
+    {
+      "label": "just: lint",
+      "type": "shell",
+      "command": "just lint",
+      "problemMatcher": ["$go"]
+    },
+    {
+      "label": "just: lint-fix",
+      "type": "shell",
+      "command": "just lint-fix",
+      "problemMatcher": ["$go"]
+    },
+    {
+      "label": "just: fmt",
+      "type": "shell",
+      "command": "just fmt",
+      "problemMatcher": []
+    },
+    {
+      "label": "just: cover-html",
+      "detail": "Run tests and open the coverage report",
+      "type": "shell",
+      "command": "just cover-html",
+      "problemMatcher": ["$go"]
+    },
+    {
+      "label": "just: dev-up",
+      "detail": "Start a local Zoekt with a sample index",
+      "type": "shell",
+      "command": "just dev-up",
+      "problemMatcher": []
+    },
+    {
+      "label": "just: inspect",
+      "detail": "Drive the server through the MCP Inspector",
+      "type": "shell",
+      "command": "just inspect",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "just: docs-fetch",
+      "detail": "Refetch the Zoekt API reference into docs/zoekt/",
+      "type": "shell",
+      "command": "just docs-fetch",
+      "problemMatcher": []
+    },
+    {
+      "label": "just: helm-template",
+      "detail": "Render the chart with the example values",
+      "type": "shell",
+      "command": "just helm-template",
+      "problemMatcher": []
+    }
+  ]
+}

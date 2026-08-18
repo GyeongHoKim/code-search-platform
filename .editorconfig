@@ -1,0 +1,42 @@
+# Editor-agnostic formatting rules.
+#
+# The .vscode settings already say most of this, but only to their own editor.
+# This file is what everyone else reads. .gitattributes is the third layer: this
+# one talks to editors, that one talks to git.
+#
+# Formatting of Go code is gofumpt's job, not an editor's -- the [*.go] block
+# below only describes what gofumpt already produces.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.go]
+indent_style = tab
+indent_size = 4
+
+[{go.mod,go.sum}]
+indent_style = tab
+indent_size = 4
+
+# just recipes are indented with four spaces; a tab would work but mixing the
+# two inside one recipe is an error.
+[justfile]
+indent_style = space
+indent_size = 4
+
+# Two trailing spaces are a hard line break in Markdown.
+[*.md]
+trim_trailing_whitespace = false
+
+# Vendored from sourcegraph/zoekt. Kept byte for byte so `just docs-fetch`
+# produces an empty diff.
+[docs/zoekt/**]
+trim_trailing_whitespace = false
+insert_final_newline = false

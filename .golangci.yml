@@ -1,0 +1,274 @@
+# Strict lint configuration for code-search-platform.
+#
+# The enabled set is curated explicitly rather than using `default: all`, so
+# upgrading golangci-lint never silently introduces new linters that break CI.
+# Adding a linter is a deliberate change to this file.
+#
+#   just lint            run the linters
+#   just fmt             apply the formatters below
+#   just config-verify   validate this file against the v2 schema
+version: "2"
+
+run:
+  tests: true
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    # Correctness core.
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - revive
+    - gosec
+
+    # Error handling. Every Zoekt failure becomes a message an agent reads, so
+    # error plumbing is held to a high standard.
+    - err113
+    - errorlint
+    - errname
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - wrapcheck
+
+    # Context and HTTP. The whole product is an HTTP client behind an MCP
+    # transport, so these catch the defects that actually bite us.
+    - bodyclose
+    - canonicalheader
+    - containedctx
+    - contextcheck
+    - fatcontext
+    - noctx
+
+    # Correctness details.
+    - copyloopvar
+    - durationcheck
+    - exhaustive
+    - exptostd
+    - forcetypeassert
+    - intrange
+    - makezero
+    - modernize
+    - predeclared
+    - reassign
+
+    # Complexity budgets.
+    - cyclop
+    - funlen
+    - gocognit
+    - nestif
+
+    # Style and maintainability.
+    - dupword
+    - gocheckcompilerdirectives
+    - gochecknoinits
+    - goconst
+    - gocritic
+    - godot
+    - misspell
+    - mnd
+    - nolintlint
+    - nonamedreturns
+    - perfsprint
+    - prealloc
+    - sloglint
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - usetesting
+    - wastedassign
+    - whitespace
+
+    # Test hygiene.
+    - thelper
+    - tparallel
+
+    # Dependency and layering policy, enforced rather than documented.
+    - depguard
+
+  settings:
+    depguard:
+      rules:
+        # Shipped code: the MCP SDK is the only external module allowed. A small
+        # dependency graph is a feature of a binary companies install internally.
+        main:
+          list-mode: strict
+          files:
+            - $all
+            - "!$test"
+          allow:
+            - $gostd
+            - github.com/modelcontextprotocol/go-sdk
+            - github.com/GyeongHoKim/code-search-platform
+          deny:
+            - pkg: math/rand
+              desc: use math/rand/v2
+        # Tests may also use go-cmp. It never reaches the binary, and its diffs
+        # are worth far more than hand-rolled reflect.DeepEqual output.
+        tests:
+          list-mode: strict
+          files:
+            - $test
+          allow:
+            - $gostd
+            - github.com/modelcontextprotocol/go-sdk
+            - github.com/GyeongHoKim/code-search-platform
+            - github.com/google/go-cmp
+          deny:
+            - pkg: math/rand
+              desc: use math/rand/v2
+        # The layer rule, enforced rather than documented in AGENTS.md. HTTP
+        # concerns stay on one side of this line and protocol concerns on the
+        # other, so the Zoekt client can be tested without an MCP server and
+        # reused by anything else that needs it.
+        zoekt-client-is-a-leaf:
+          list-mode: lax
+          files:
+            - "**/internal/zoekt/**"
+          deny:
+            - pkg: github.com/GyeongHoKim/code-search-platform/internal/mcpserver
+              desc: internal/zoekt is a leaf; the MCP layer depends on it, not the reverse
+            - pkg: github.com/GyeongHoKim/code-search-platform/internal/render
+              desc: internal/zoekt returns types; rendering them is the caller's job
+            - pkg: github.com/GyeongHoKim/code-search-platform/internal/config
+              desc: internal/zoekt takes its settings as arguments, never by reading config
+
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+
+    govet:
+      enable-all: true
+      settings:
+        shadow:
+          strict: true
+
+    gosec:
+      severity: low
+      confidence: low
+
+    exhaustive:
+      default-signifies-exhaustive: true
+
+    cyclop:
+      max-complexity: 12
+
+    gocognit:
+      min-complexity: 20
+
+    funlen:
+      lines: 80
+      statements: 50
+
+    nestif:
+      min-complexity: 4
+
+    goconst:
+      min-len: 3
+      min-occurrences: 3
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+        - opinionated
+      disabled-checks:
+        # Conflicts with the explicit early-return style used throughout.
+        - ifElseChain
+
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-unused: false
+
+    revive:
+      severity: error
+      rules:
+        - name: blank-imports
+        - name: confusing-naming
+        - name: confusing-results
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: deep-exit
+        - name: dot-imports
+        - name: duplicated-imports
+        - name: early-return
+        - name: empty-block
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: exported
+        - name: get-return
+        - name: identical-branches
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: modifies-parameter
+        - name: modifies-value-receiver
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: string-of-int
+        - name: struct-tag
+        - name: superfluous-else
+        - name: time-naming
+        - name: unconditional-recursion
+        - name: unexported-naming
+        - name: unexported-return
+        - name: unnecessary-stmt
+        - name: unreachable-code
+        - name: unused-parameter
+        - name: unused-receiver
+        - name: use-any
+        - name: useless-break
+        - name: var-declaration
+        - name: var-naming
+        - name: waitgroup-by-value
+
+    wrapcheck:
+      ignore-sigs:
+        - .Errorf(
+        - errors.New(
+        - errors.Unwrap(
+        - errors.Join(
+        - .Wrap(
+        - .Wrapf(
+
+  exclusions:
+    generated: strict
+    rules:
+      # Tests may be long, use literal fixtures, and assert loosely.
+      - path: _test\.go
+        linters:
+          - containedctx
+          - cyclop
+          - err113
+          - forcetypeassert
+          - funlen
+          - gocognit
+          - goconst
+          - mnd
+          - wrapcheck
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+    - gci
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/GyeongHoKim/code-search-platform
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/GyeongHoKim/code-search-platform)
+  exclusions:
+    generated: strict

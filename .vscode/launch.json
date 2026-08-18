@@ -1,0 +1,60 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // The server reads JSON-RPC from stdin, so it needs a real terminal to
+      // type into. Paste a request such as:
+      //   {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+      "name": "Run server (stdio)",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/cmd/code-search-mcp",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      // Put CODE_SEARCH_ZOEKT_URL here. .env is gitignored.
+      "envFile": "${workspaceFolder}/.env"
+    },
+    {
+      // The transport a deployed instance uses. Reachable at
+      // http://127.0.0.1:8080 once running.
+      "name": "Run server (http)",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/cmd/code-search-mcp",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "CODE_SEARCH_TRANSPORT": "http"
+      }
+    },
+    {
+      // Attaching is usually the real way to debug this: let your MCP client
+      // spawn the server, then pick its process here. Breakpoints hit while
+      // the agent drives it.
+      "name": "Attach to running server",
+      "type": "go",
+      "request": "attach",
+      "mode": "local",
+      "processId": "${command:pickGoProcess}"
+    },
+    {
+      "name": "Run server (--version)",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}/cmd/code-search-mcp",
+      "args": ["--version"]
+    },
+    {
+      "name": "Debug tests in current package",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${fileDirname}",
+      "buildFlags": ["-race"]
+    }
+  ]
+}
