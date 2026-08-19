@@ -48,6 +48,16 @@ Always go through `just`. The recipes carry the right flags and CI runs the same
 | `just helm-lint` / `just helm-template` | Check the chart without a cluster |
 | `just ci` | Everything CI runs |
 
+Two things about these that cost an afternoon each:
+
+- **`just dev-up` indexes git HEAD, not the working tree.** `zoekt-git-index` reads the
+  repository, so a file you have written but not committed does not exist as far as the local
+  index is concerned. A test that searches for code you just wrote fails until you commit and
+  re-run `just dev-up`, and the failure looks exactly like a broken client.
+- **`just ci` fails on an uncommitted `go.mod`.** `tidy-check` compares against the checked-in
+  file, so adding a dependency and running the gate before committing reports "untidy" for a
+  `go.mod` that is perfectly tidy. CI never sees this because its checkout is clean.
+
 ## Verification
 
 **After changing any code, run these three and confirm they pass before reporting the work done:**
@@ -73,6 +83,7 @@ cmd/code-search-mcp/        entry point: flags, environment, transport selection
 internal/config/            environment parsing and validation
 internal/zoekt/             the Zoekt JSON API client -- HTTP lives here and nowhere else
 internal/render/            Zoekt types to the compact text a model reads
+internal/httpauth/          the bearer token guard on the http transport
 internal/mcpserver/         tool definitions and registration
 internal/version/           ldflags-injected build stamps
 internal/tools/fetchdocs/   vendors docs/zoekt/ at a pinned revision

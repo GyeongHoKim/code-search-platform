@@ -125,6 +125,18 @@ linters:
         # concerns stay on one side of this line and protocol concerns on the
         # other, so the Zoekt client can be tested without an MCP server and
         # reused by anything else that needs it.
+        # The same rule one layer up: render turns zoekt types into text, and
+        # the MCP layer calls it. Its limits arrive as arguments, never from
+        # config, so it can be tested without either.
+        render-is-a-leaf:
+          list-mode: lax
+          files:
+            - "**/internal/render/**"
+          deny:
+            - pkg: github.com/GyeongHoKim/code-search-platform/internal/mcpserver
+              desc: internal/render is a leaf; the MCP layer depends on it, not the reverse
+            - pkg: github.com/GyeongHoKim/code-search-platform/internal/config
+              desc: internal/render takes its limits as arguments, never by reading config
         zoekt-client-is-a-leaf:
           list-mode: lax
           files:

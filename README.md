@@ -92,7 +92,7 @@ kubectl -n code-search logs -f job/first-index
 
 ```bash
 claude mcp add --transport http code-search https://search.example.com/mcp/code-search \
-  --header "Authorization: Bearer $CODE_SEARCH_TOKEN"
+  --header "Authorization: Bearer $CODE_SEARCH_AUTH_TOKEN"
 ```
 
 **Codex** — in `~/.codex/config.toml`:
@@ -100,6 +100,9 @@ claude mcp add --transport http code-search https://search.example.com/mcp/code-
 ```toml
 [mcp_servers.code-search]
 url = "https://search.example.com/mcp/code-search"
+# Read at connect time and sent as "Authorization: Bearer ...", so the token
+# stays out of config.toml.
+bearer_token_env_var = "CODE_SEARCH_AUTH_TOKEN"
 ```
 
 **Locally, over stdio** — for a client that spawns the binary itself:
@@ -128,6 +131,22 @@ something has to do that compaction. Tokens are a budget.
 `lang:`, `sym:`, negation, boolean grouping. There is deliberately no second query language layered
 on top of it.
 
+**No tool takes a result limit or a context-line count.** Those come from the environment, because
+the token budget belongs to whoever runs the server: a caller that could raise them would make
+`CODE_SEARCH_MAX_RESULTS` a default rather than a ceiling. An agent that wants more narrows the
+query or reads the file. When a search is truncated, the first line says so and how many files
+matched in total.
+
+`read_file` returns at most 400 lines per call and says where to resume. Tokens are spent the
+moment they arrive, and a caller cannot know a file is eight thousand lines before asking; being
+handed the first 400 costs one more round trip, being handed all of it cannot be undone.
+
+`find_symbol` distinguishes "no such symbol" from "this index cannot answer that". `sym:` only
+matches when the index was built with ctags on `$PATH`, and Zoekt answers a symbol query on an
+index without it with silence rather than an error. When nothing matches, the tool checks whether
+the repositories carry symbol data and says which do not. `list_repos` reports the same thing as
+`symbols=yes` or `symbols=no`, so an agent can tell before it asks.
+
 ## Supported Git hosts
 
 Mirroring is done by Zoekt's own `zoekt-mirror-*` tools, so the list is theirs:
@@ -145,6 +164,33 @@ The mirror tools do not share one flag set — Gerrit takes `-active`, GitLab an
 `-token`, Bitbucket takes `-project`. Only the Gerrit flags are wired into the chart directly,
 because those are the ones verified against a real host. For any other host, run
 `zoekt-mirror-<kind> -help` and pass what it wants through `indexer.extraMirrorArgs`.
+
+## Authentication
+
+The `http` transport refuses to start without `CODE_SEARCH_AUTH_TOKEN`, and answers `401` to any
+request that does not present it as a bearer token. There is no way to configure it off, because
+this server is the only front door to an index that has no authentication of its own.
+
+```bash
+kubectl create secret generic code-search-token \
+  --from-literal=token="$(openssl rand -base64 32)"
+
+helm upgrade code-search ... --set mcp.auth.existingSecret=code-search-token
+```
+
+The value is a **comma-separated list**, which is what makes rotation possible without a window in
+which every caller is broken: add the new token, let engineers move to it, then drop the old one.
+
+Two things this deliberately does not do. It does not rate limit — a static token is guessable at
+whatever rate your front door allows, so bound it there (`nginx.ingress.kubernetes.io/limit-rps` or
+your Traefik middleware). And it does not identify anyone: every caller holding the token is the
+same caller, so the audit trail is "the token", not "who".
+
+Both of those are answered by OAuth 2.1, which is what the MCP specification actually asks for — the
+server becomes a Resource Server validating tokens from your IdP. The wiring here is already the
+SDK's `auth.RequireBearerToken`, so that change replaces one `auth.TokenVerifier` in
+`internal/httpauth` and touches nothing else. Until an authorisation server exists to point at, a
+static token is the honest amount of machinery.
 
 ## Access control
 
@@ -178,6 +224,7 @@ The server itself is configured entirely by environment; the chart sets these fo
 | `CODE_SEARCH_ZOEKT_URL` | *(required)* | Base URL of a `zoekt-webserver` started with `-rpc` |
 | `CODE_SEARCH_TRANSPORT` | `stdio` | `stdio` or `http` |
 | `CODE_SEARCH_ADDR` | `127.0.0.1:8080` | Listen address, `http` transport only |
+| `CODE_SEARCH_AUTH_TOKEN` | *(required for `http`)* | Comma-separated bearer tokens callers must present |
 | `CODE_SEARCH_TIMEOUT` | `30s` | Bounds a single request to Zoekt |
 | `CODE_SEARCH_MAX_RESULTS` | `50` | Caps file matches per search (max 500) |
 | `CODE_SEARCH_CONTEXT_LINES` | `3` | Lines around each match (max 50) |

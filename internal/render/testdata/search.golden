@@ -1,0 +1,11 @@
+2 files, 3 matches
+src:a.go
+     9  nine
+    10> ten
+    11  eleven
+    12> twelve
+    13  thirteen
+--
+    40  forty
+    41> forty-one
+src:b.go (filename match)

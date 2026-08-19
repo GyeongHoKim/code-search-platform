@@ -62,6 +62,9 @@ var (
 	ErrInvalidDuration = errors.New("value is not a duration")
 	// ErrMissingAddr means the http transport was selected without a listen address.
 	ErrMissingAddr = errors.New("listen address is required for the http transport")
+	// ErrMissingAuthToken means the http transport was selected without a token
+	// to check callers against.
+	ErrMissingAuthToken = errors.New("auth token is required for the http transport")
 )
 
 // Config is everything the server needs to start, already validated.
@@ -72,6 +75,10 @@ type Config struct {
 	Transport Transport
 	// Addr is the listen address, used only by the http transport.
 	Addr string
+	// AuthTokens are the bearer tokens the http transport accepts. Several are
+	// live at once so that one can be rotated without a window in which every
+	// caller is broken.
+	AuthTokens []string
 	// Timeout bounds a single request to Zoekt.
 	Timeout time.Duration
 	// MaxResults caps how many file matches one search returns.
@@ -98,6 +105,11 @@ func Load(lookup Lookup) (*Config, error) {
 		return nil, err
 	}
 	if err := loadTransport(lookup, cfg); err != nil {
+		return nil, err
+	}
+	// After loadTransport: whether a token is required depends on which
+	// transport was selected.
+	if err := loadAuthTokens(lookup, cfg); err != nil {
 		return nil, err
 	}
 	if err := loadNumbers(lookup, cfg); err != nil {
@@ -147,6 +159,30 @@ func loadTransport(lookup Lookup, cfg *Config) error {
 	}
 	if cfg.Transport == TransportHTTP && cfg.Addr == "" {
 		return fmt.Errorf("%s: %w", EnvPrefix+"ADDR", ErrMissingAddr)
+	}
+
+	return nil
+}
+
+// loadAuthTokens reads the comma separated list of bearer tokens the http
+// transport accepts.
+//
+// The http transport is the one that puts this server on a network, and this
+// server is the only front door to an index that has no authentication of its
+// own. Starting without a token there would expose the whole corpus, so it is
+// a startup failure rather than a warning. Stdio has no network to guard: the
+// client spawned this process, so it is already whoever owns it.
+func loadAuthTokens(lookup Lookup, cfg *Config) error {
+	raw, _ := lookup(EnvPrefix + "AUTH_TOKEN")
+
+	for token := range strings.SplitSeq(raw, ",") {
+		if trimmed := strings.TrimSpace(token); trimmed != "" {
+			cfg.AuthTokens = append(cfg.AuthTokens, trimmed)
+		}
+	}
+
+	if cfg.Transport == TransportHTTP && len(cfg.AuthTokens) == 0 {
+		return fmt.Errorf("%s: %w", EnvPrefix+"AUTH_TOKEN", ErrMissingAuthToken)
 	}
 
 	return nil

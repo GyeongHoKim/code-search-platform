@@ -128,6 +128,27 @@ mcp:
     port: 80
     targetPort: 8080
 
+  # The bearer token callers must present. Required: this server is the only
+  # front door to an index that has no authentication of its own, so the chart
+  # refuses to render without one rather than deploying an open corpus.
+  #
+  # Generate it with: openssl rand -base64 32
+  auth:
+    # Name of an existing Secret with a "token" key. Preferred: it keeps the
+    # value out of your values file and out of git.
+    #
+    #   kubectl create secret generic code-search-token \
+    #     --from-literal=token="$(openssl rand -base64 32)"
+    existingSecret: ""
+    # Or let the chart create one. Convenient for a first run, and a bad idea
+    # for anything else -- the token ends up in your values file, in Helm's
+    # release history, and in whatever CI logged the deploy.
+    create: false
+    # A comma separated list is accepted, which is what makes rotation possible
+    # without a window in which every caller is broken: add the new token, let
+    # callers move to it, then drop the old one.
+    token: ""
+
   # How many lines surround each match. The single most important knob for how
   # many tokens a search costs the agent that ran it.
   contextLines: 3

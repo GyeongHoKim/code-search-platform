@@ -28,6 +28,12 @@ zoekt:
 mcp:
   replicas: 2
   contextLines: 3
+  auth:
+    # kubectl create secret generic code-search-token \
+    #   --from-literal=token="$(openssl rand -base64 32)"
+    #
+    # Comma separate two tokens to rotate one out without breaking callers.
+    existingSecret: code-search-token
 
 ingress:
   enabled: true

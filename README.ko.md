@@ -90,7 +90,7 @@ kubectl -n code-search logs -f job/first-index
 
 ```bash
 claude mcp add --transport http code-search https://search.example.com/mcp/code-search \
-  --header "Authorization: Bearer $CODE_SEARCH_TOKEN"
+  --header "Authorization: Bearer $CODE_SEARCH_AUTH_TOKEN"
 ```
 
 **Codex** — `~/.codex/config.toml`:
@@ -98,6 +98,9 @@ claude mcp add --transport http code-search https://search.example.com/mcp/code-
 ```toml
 [mcp_servers.code-search]
 url = "https://search.example.com/mcp/code-search"
+# 연결 시점에 읽어 "Authorization: Bearer ..." 로 보냅니다. 토큰이
+# config.toml 에 남지 않습니다.
+bearer_token_env_var = "CODE_SEARCH_AUTH_TOKEN"
 ```
 
 **로컬 stdio** — 클라이언트가 바이너리를 직접 실행하는 경우:
@@ -126,6 +129,21 @@ url = "https://search.example.com/mcp/code-search"
 `file:`, `lang:`, `sym:`, 부정, 불리언 그룹핑. 그 위에 두 번째 쿼리 언어를 얹지 않는 것은 의도된
 선택입니다.
 
+**결과 개수나 컨텍스트 라인 수를 받는 도구는 없습니다.** 이 값들은 환경변수에서만 옵니다. 토큰
+예산은 서버를 운영하는 쪽의 것이고, 호출자가 올릴 수 있다면 `CODE_SEARCH_MAX_RESULTS`는 상한이
+아니라 기본값에 불과해지기 때문입니다. 더 필요한 에이전트는 쿼리를 좁히거나 파일을 읽습니다.
+검색 결과가 잘리면 첫 줄이 그 사실과 전체 매치 파일 수를 알려줍니다.
+
+`read_file`은 한 번에 최대 400줄을 반환하고 어디서 이어 읽을지 알려줍니다. 토큰은 도착하는 순간
+소비되고, 호출자는 그 파일이 8,000줄인지 물어보기 전에 알 수 없습니다. 처음 400줄만 받으면 왕복이
+한 번 늘어날 뿐이지만, 전부 받으면 되돌릴 수 없습니다.
+
+`find_symbol`은 "그런 심볼이 없음"과 "이 인덱스는 답할 수 없음"을 구분합니다. `sym:`은 인덱싱
+시점에 `$PATH`에 ctags가 있었을 때만 매치되고, 없이 만든 인덱스는 심볼 질의에 에러가 아니라
+침묵으로 답합니다. 매치가 없으면 이 도구는 대상 저장소가 심볼 데이터를 갖고 있는지 확인해서 없는
+저장소를 알려줍니다. `list_repos`도 같은 정보를 `symbols=yes` / `symbols=no`로 표시하므로,
+에이전트가 묻기 전에 알 수 있습니다.
+
 ## 지원하는 Git 호스트
 
 미러링은 Zoekt의 `zoekt-mirror-*` 도구가 담당하므로, 지원 목록은 Zoekt의 것입니다:
@@ -143,6 +161,32 @@ url = "https://search.example.com/mcp/code-search"
 Bitbucket은 `-project` 를 받습니다. 차트에 직접 배선한 것은 Gerrit 플래그뿐인데, 실제 호스트에
 대해 확인한 것이 그것이기 때문입니다. 다른 호스트는 `zoekt-mirror-<kind> -help` 를 확인해
 `indexer.extraMirrorArgs` 로 넘기세요.
+
+## 인증
+
+`http` 전송은 `CODE_SEARCH_AUTH_TOKEN` 없이는 기동을 거부하고, 그 토큰을 bearer로 제시하지 않은
+요청에는 `401` 을 돌려줍니다. 끄는 설정은 없습니다. 이 서버가 자체 인증이 없는 인덱스로 향하는
+유일한 정문이기 때문입니다.
+
+```bash
+kubectl create secret generic code-search-token \
+  --from-literal=token="$(openssl rand -base64 32)"
+
+helm upgrade code-search ... --set mcp.auth.existingSecret=code-search-token
+```
+
+값은 **콤마로 구분된 목록**입니다. 이것이 모든 호출자가 한꺼번에 끊기는 구간 없이 토큰을 회전할 수
+있게 해 줍니다 — 새 토큰을 추가하고, 엔지니어들이 옮겨 가게 한 뒤, 옛 토큰을 제거합니다.
+
+의도적으로 하지 않는 것이 둘 있습니다. **레이트 리밋을 걸지 않습니다** — 정적 토큰은 정문이 허용하는
+속도만큼 추측당하므로, 제한은 거기서 거세요 (`nginx.ingress.kubernetes.io/limit-rps` 또는 Traefik
+미들웨어). 그리고 **누구인지 식별하지 않습니다** — 토큰을 가진 모든 호출자는 동일한 호출자이므로,
+감사 기록에 남는 것은 "누가"가 아니라 "그 토큰"입니다.
+
+둘 다 OAuth 2.1이 답이고, MCP 명세가 실제로 요구하는 형태도 그것입니다 — 서버가 사내 IdP의 토큰을
+검증하는 Resource Server가 됩니다. 지금 배선도 이미 SDK의 `auth.RequireBearerToken` 이므로, 그
+전환은 `internal/httpauth` 의 `auth.TokenVerifier` 하나를 교체하는 것으로 끝나고 나머지는 그대로
+남습니다. 가리킬 인가 서버가 생기기 전까지는 정적 토큰이 정직한 분량의 장치입니다.
 
 ## 접근 제어
 
@@ -175,6 +219,7 @@ Zoekt 인덱스에는 리포지터리별 권한 개념이 없습니다. 한번 �
 | `CODE_SEARCH_ZOEKT_URL` | *(필수)* | `-rpc` 로 띄운 `zoekt-webserver` 의 base URL |
 | `CODE_SEARCH_TRANSPORT` | `stdio` | `stdio` 또는 `http` |
 | `CODE_SEARCH_ADDR` | `127.0.0.1:8080` | 리슨 주소, `http` 전송에만 사용 |
+| `CODE_SEARCH_AUTH_TOKEN` | *(`http` 에서 필수)* | 호출자가 제시해야 하는 bearer 토큰, 콤마 구분 |
 | `CODE_SEARCH_TIMEOUT` | `30s` | Zoekt 요청 하나의 시간 제한 |
 | `CODE_SEARCH_MAX_RESULTS` | `50` | 검색당 파일 매치 상한 (최대 500) |
 | `CODE_SEARCH_CONTEXT_LINES` | `3` | 매치 주변 라인 수 (최대 50) |

@@ -40,3 +40,8 @@ trim_trailing_whitespace = false
 [docs/zoekt/**]
 trim_trailing_whitespace = false
 insert_final_newline = false
+
+# Golden files are byte-for-byte expectations. The renderer never emits
+# trailing whitespace, but an editor must not be the reason a test passes.
+[internal/render/testdata/**]
+trim_trailing_whitespace = false
