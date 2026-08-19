@@ -228,6 +228,11 @@ func TestLiveContextLinesAreNewlineTerminated(t *testing.T) {
 // TestLiveFileCountIsTheTotalBeforeTruncation pins the assumption the whole
 // truncation notice rests on: MaxDocDisplayCount trims Files after the stats
 // were counted, so FileCount stays the pre-truncation total.
+//
+// The limit is one below the total rather than 1. A limit of 1 is the one value
+// that makes Zoekt stop the search early instead of truncating a finished one:
+// it reports FilesSkipped and counts that are only lower bounds, which is the
+// case the FilesSkipped warning exists for, not the case pinned here.
 func TestLiveFileCountIsTheTotalBeforeTruncation(t *testing.T) {
 	t.Parallel()
 
@@ -237,20 +242,27 @@ func TestLiveFileCountIsTheTotalBeforeTruncation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Search() error = %v, want nil", err)
 	}
-	if full.FileCount < 2 {
-		t.Skipf("the sample index has %d matching files, need at least 2", full.FileCount)
+	if full.FileCount < 3 {
+		t.Skipf("the sample index has %d matching files, need at least 3", full.FileCount)
 	}
 
-	capped, err := client.Search(t.Context(), "func", zoekt.SearchOptions{MaxDocDisplayCount: 1})
+	limit := full.FileCount - 1
+
+	capped, err := client.Search(t.Context(), "func", zoekt.SearchOptions{MaxDocDisplayCount: limit})
 	if err != nil {
 		t.Fatalf("Search() error = %v, want nil", err)
 	}
 
-	if len(capped.Files) != 1 {
-		t.Errorf("Files = %d, want the display cap to apply", len(capped.Files))
+	if capped.FilesSkipped != 0 {
+		t.Fatalf("FilesSkipped = %d under a limit of %d, want 0: the engine stopped early, "+
+			"so its counts are lower bounds and this assumption does not apply",
+			capped.FilesSkipped, limit)
+	}
+	if len(capped.Files) != limit {
+		t.Errorf("Files = %d, want the display limit %d to apply", len(capped.Files), limit)
 	}
 	if capped.FileCount != full.FileCount {
-		t.Errorf("FileCount = %d under a display cap, want the untruncated total %d",
+		t.Errorf("FileCount = %d under a display limit, want the untruncated total %d",
 			capped.FileCount, full.FileCount)
 	}
 }
