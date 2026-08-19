@@ -199,6 +199,32 @@ func TestFindSymbolSeparatesAMissingSymbolFromAnIndexWithoutSymbols(t *testing.T
 	}
 }
 
+func TestFindSymbolReportsIncompleteCoverageOnAMixedIndex(t *testing.T) {
+	t.Parallel()
+
+	searcher := &stub{list: &zoekt.RepoList{Repos: []*zoekt.RepoListEntry{
+		{Repository: zoekt.Repository{Name: "src", HasSymbols: true}},
+		{Repository: zoekt.Repository{Name: "legacy"}},
+	}}}
+	session := connect(t, searcher)
+
+	text, isErr := call(t, session, "find_symbol", map[string]any{"symbol": "Search"})
+	if isErr {
+		t.Fatal("find_symbol reported an error, want an explanatory result")
+	}
+
+	// A miss in src says nothing about legacy, which sym: never reached.
+	if !strings.Contains(text, "incomplete") {
+		t.Errorf("text = %q, want it to report incomplete coverage", text)
+	}
+	if !strings.Contains(text, "legacy") {
+		t.Errorf("text = %q, want the unsearchable repository named", text)
+	}
+	if strings.Contains(text, "src") {
+		t.Errorf("text = %q, want only the repositories without symbols named", text)
+	}
+}
+
 func TestFindSymbolReportsAMissingSymbolWhenTheIndexHasSymbols(t *testing.T) {
 	t.Parallel()
 

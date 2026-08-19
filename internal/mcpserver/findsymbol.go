@@ -64,13 +64,25 @@ func (s *server) explainEmpty(ctx context.Context, in findSymbolInput, query str
 		}
 	}
 
-	if len(without) < len(list.Repos) || len(list.Repos) == 0 {
+	if len(without) == 0 {
 		return text(render.Search(&zoekt.SearchResult{}, query).String())
 	}
 
+	if len(without) == len(list.Repos) {
+		return text(fmt.Sprintf(
+			"no symbol data: these repositories were indexed without ctags, so sym: queries cannot match.\n"+
+				"this is not the same as \"symbol not found\".\n"+
+				"indexed without symbols: %s\n",
+			strings.Join(without, ", ")))
+	}
+
+	// Part of the scope answered and had nothing; the rest was never searched.
+	// Reporting this as a plain miss would tell a model the symbol does not
+	// exist, which is the one thing this result cannot establish.
 	return text(fmt.Sprintf(
-		"no symbol data: these repositories were indexed without ctags, so sym: queries cannot match.\n"+
-			"this is not the same as \"symbol not found\".\n"+
+		"%sincomplete: some repositories were indexed without ctags, so sym: queries cannot reach them.\n"+
+			"a definition may still exist there.\n"+
 			"indexed without symbols: %s\n",
+		render.Search(&zoekt.SearchResult{}, query).String(),
 		strings.Join(without, ", ")))
 }
