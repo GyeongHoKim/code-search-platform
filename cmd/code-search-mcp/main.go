@@ -35,6 +35,12 @@ import (
 // Without it a single idle connection can hold a slot open indefinitely.
 const readHeaderTimeout = 10 * time.Second
 
+// readTimeout bounds the whole request, body included. ReadHeaderTimeout stops
+// at the headers, so without this a caller past the guard can dribble a body
+// forever and keep the connection and its goroutine. It does not bound the
+// response, so a long-lived SSE stream is unaffected.
+const readTimeout = 30 * time.Second
+
 // shutdownGrace is how long in-flight requests get to finish once the process
 // has been asked to stop.
 const shutdownGrace = 10 * time.Second
@@ -172,6 +178,7 @@ func serveHTTP(ctx context.Context, server *mcp.Server, logger *slog.Logger, cfg
 		Addr:              cfg.Addr,
 		Handler:           httpHandler(server, cfg),
 		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
 	}
 
 	listening := make(chan error, 1)
