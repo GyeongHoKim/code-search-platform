@@ -5,25 +5,25 @@
 # image definition rather than two that can disagree.
 version: 2
 
-project_name: code-search-platform
+project_name: zoekt-mcp-server
 
 before:
   hooks:
     - go mod tidy
 
 builds:
-  - id: code-search-mcp
-    main: ./cmd/code-search-mcp
-    binary: code-search-mcp
+  - id: zoekt-mcp-server
+    main: ./cmd/zoekt-mcp-server
+    binary: zoekt-mcp-server
     env:
       - CGO_ENABLED=0
     flags:
       - -trimpath
     ldflags:
       - -s -w
-      - -X github.com/GyeongHoKim/code-search-platform/internal/version.Version={{ .Version }}
-      - -X github.com/GyeongHoKim/code-search-platform/internal/version.Commit={{ .Commit }}
-      - -X github.com/GyeongHoKim/code-search-platform/internal/version.Date={{ .Date }}
+      - -X github.com/GyeongHoKim/zoekt-mcp-server/internal/version.Version={{ .Version }}
+      - -X github.com/GyeongHoKim/zoekt-mcp-server/internal/version.Commit={{ .Commit }}
+      - -X github.com/GyeongHoKim/zoekt-mcp-server/internal/version.Date={{ .Date }}
     goos:
       - linux
       - darwin
@@ -35,7 +35,7 @@ builds:
 archives:
   - id: default
     ids:
-      - code-search-mcp
+      - zoekt-mcp-server
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     formats:

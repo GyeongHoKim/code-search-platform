@@ -9,9 +9,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/GyeongHoKim/code-search-platform/internal/config"
-	"github.com/GyeongHoKim/code-search-platform/internal/mcpserver"
-	"github.com/GyeongHoKim/code-search-platform/internal/zoekt"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/config"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/mcpserver"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/zoekt"
 )
 
 // stub records what a tool asked Zoekt for and replays a canned answer.

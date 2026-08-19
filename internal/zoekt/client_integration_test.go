@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/GyeongHoKim/code-search-platform/internal/zoekt"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/zoekt"
 )
 
 // envAddr names a running zoekt-webserver to test against.
-const envAddr = "CODE_SEARCH_TEST_ZOEKT_URL"
+const envAddr = "ZOEKT_MCP_TEST_UPSTREAM_URL"
 
 // The unit tests build their fixtures out of this package's own types, so the
 // field names are consistent by construction: a name this client spells
@@ -20,7 +20,7 @@ const envAddr = "CODE_SEARCH_TEST_ZOEKT_URL"
 // a real server actually sent.
 //
 //	just dev-up
-//	CODE_SEARCH_TEST_ZOEKT_URL=http://127.0.0.1:6070 go test ./internal/zoekt/...
+//	ZOEKT_MCP_TEST_UPSTREAM_URL=http://127.0.0.1:6070 go test ./internal/zoekt/...
 //
 // They skip when the variable is unset, so `just test` stays hermetic.
 func liveClient(t *testing.T) *zoekt.Client {

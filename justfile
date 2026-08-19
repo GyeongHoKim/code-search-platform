@@ -1,4 +1,4 @@
-# Development tasks for code-search-platform.
+# Development tasks for zoekt-mcp-server.
 #
 # Every task runs on Linux, macOS and Windows. Recipes that cannot be written
 # once are split with the [unix] / [windows] attributes rather than branching
@@ -9,10 +9,10 @@
 set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
 set shell := ["bash", "-euco", "pipefail"]
 
-BIN := "code-search-mcp"
+BIN := "zoekt-mcp-server"
 EXT := if os() == "windows" { ".exe" } else { "" }
 OUT := "bin" / BIN + EXT
-PKG := "./cmd/code-search-mcp"
+PKG := "./cmd/zoekt-mcp-server"
 
 # Release builds get their stamps from goreleaser; local builds report "dev"
 # unless these are exported, which keeps the recipe free of shell-specific
@@ -21,7 +21,7 @@ VERSION := env("VERSION", "dev")
 COMMIT := env("COMMIT", "none")
 DATE := env("DATE", "unknown")
 
-MOD := "github.com/GyeongHoKim/code-search-platform"
+MOD := "github.com/GyeongHoKim/zoekt-mcp-server"
 LDFLAGS := "-s -w" + \
     " -X " + MOD + "/internal/version.Version=" + VERSION + \
     " -X " + MOD + "/internal/version.Commit=" + COMMIT + \
@@ -57,7 +57,7 @@ build-all:
 
 # Build the container image locally, tagged for inspection only.
 image:
-    docker build -t code-search-mcp:dev .
+    docker build -t zoekt-mcp-server:dev .
 
 # ---------------------------------------------------------------- quality
 
@@ -153,7 +153,7 @@ inspect: build
 #
 # Render the Helm chart with the example values.
 helm-template:
-    helm template code-search deploy/helm -f deploy/helm/values-example-gerrit.yaml
+    helm template zoekt-mcp-server deploy/helm -f deploy/helm/values-example-gerrit.yaml
 
 # Lint the Helm chart.
 #

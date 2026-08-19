@@ -27,7 +27,7 @@ const (
 )
 
 // EnvPrefix is prepended to every variable this package reads.
-const EnvPrefix = "CODE_SEARCH_"
+const EnvPrefix = "ZOEKT_MCP_"
 
 // Defaults. Every one of these is safe for a single developer running the
 // server locally against a Zoekt on the loopback interface.
@@ -120,21 +120,21 @@ func Load(lookup Lookup) (*Config, error) {
 }
 
 func loadZoektURL(lookup Lookup, cfg *Config) error {
-	raw, ok := lookup(EnvPrefix + "ZOEKT_URL")
+	raw, ok := lookup(EnvPrefix + "UPSTREAM_URL")
 	raw = strings.TrimSpace(raw)
 	if !ok || raw == "" {
-		return fmt.Errorf("%s: %w", EnvPrefix+"ZOEKT_URL", ErrMissingZoektURL)
+		return fmt.Errorf("%s: %w", EnvPrefix+"UPSTREAM_URL", ErrMissingZoektURL)
 	}
 
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return fmt.Errorf("%s=%q: %w", EnvPrefix+"ZOEKT_URL", raw, ErrInvalidZoektURL)
+		return fmt.Errorf("%s=%q: %w", EnvPrefix+"UPSTREAM_URL", raw, ErrInvalidZoektURL)
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("%s=%q: %w", EnvPrefix+"ZOEKT_URL", raw, ErrInvalidZoektURL)
+		return fmt.Errorf("%s=%q: %w", EnvPrefix+"UPSTREAM_URL", raw, ErrInvalidZoektURL)
 	}
 	if parsed.Host == "" {
-		return fmt.Errorf("%s=%q: %w", EnvPrefix+"ZOEKT_URL", raw, ErrInvalidZoektURL)
+		return fmt.Errorf("%s=%q: %w", EnvPrefix+"UPSTREAM_URL", raw, ErrInvalidZoektURL)
 	}
 
 	cfg.ZoektURL = strings.TrimSuffix(raw, "/")

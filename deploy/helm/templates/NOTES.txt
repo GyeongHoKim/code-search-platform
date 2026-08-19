@@ -2,13 +2,13 @@
 
 The MCP server is reachable inside the cluster at:
 
-  http://{{ include "code-search-platform.fullname" . }}-mcp.{{ .Release.Namespace }}.svc:{{ .Values.mcp.service.port }}
+  http://{{ include "zoekt-mcp-server.fullname" . }}-mcp.{{ .Release.Namespace }}.svc:{{ .Values.mcp.service.port }}
 
 {{ if .Values.indexer.enabled -}}
 The index is empty until the indexer has run. It is scheduled at {{ .Values.indexer.schedule | quote }};
 to build it now rather than waiting:
 
-  kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "code-search-platform.fullname" . }}-indexer first-index
+  kubectl -n {{ .Release.Namespace }} create job --from=cronjob/{{ include "zoekt-mcp-server.fullname" . }}-indexer first-index
   kubectl -n {{ .Release.Namespace }} logs -f job/first-index
 
 {{ else -}}
@@ -19,21 +19,21 @@ the index into that volume yourself.
 {{- if .Values.ingress.enabled }}
 Agents reach it at https://{{ .Values.ingress.host }}{{ .Values.ingress.path }}
 
-  export CODE_SEARCH_AUTH_TOKEN=$(kubectl -n {{ .Release.Namespace }} get secret {{ include "code-search-platform.authSecret" . }} -o jsonpath='{.data.token}' | base64 -d)
-  claude mcp add --transport http code-search https://{{ .Values.ingress.host }}{{ .Values.ingress.path }} \
-    --header "Authorization: Bearer $CODE_SEARCH_AUTH_TOKEN"
+  export ZOEKT_MCP_AUTH_TOKEN=$(kubectl -n {{ .Release.Namespace }} get secret {{ include "zoekt-mcp-server.authSecret" . }} -o jsonpath='{.data.token}' | base64 -d)
+  claude mcp add --transport http zoekt-mcp https://{{ .Values.ingress.host }}{{ .Values.ingress.path }} \
+    --header "Authorization: Bearer $ZOEKT_MCP_AUTH_TOKEN"
 {{- else }}
 No Ingress is enabled, so nothing outside the cluster can reach it yet. To try
 it from your machine:
 
-  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "code-search-platform.fullname" . }}-mcp {{ .Values.mcp.service.port }}:{{ .Values.mcp.service.port }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "zoekt-mcp-server.fullname" . }}-mcp {{ .Values.mcp.service.port }}:{{ .Values.mcp.service.port }}
 
 The token is required over the forwarded port too; without it every request is
 answered with 401.
 
-  export CODE_SEARCH_AUTH_TOKEN=$(kubectl -n {{ .Release.Namespace }} get secret {{ include "code-search-platform.authSecret" . }} -o jsonpath='{.data.token}' | base64 -d)
-  claude mcp add --transport http code-search http://127.0.0.1:{{ .Values.mcp.service.port }}/ \
-    --header "Authorization: Bearer $CODE_SEARCH_AUTH_TOKEN"
+  export ZOEKT_MCP_AUTH_TOKEN=$(kubectl -n {{ .Release.Namespace }} get secret {{ include "zoekt-mcp-server.authSecret" . }} -o jsonpath='{.data.token}' | base64 -d)
+  claude mcp add --transport http zoekt-mcp http://127.0.0.1:{{ .Values.mcp.service.port }}/ \
+    --header "Authorization: Bearer $ZOEKT_MCP_AUTH_TOKEN"
 {{- end }}
 
 Zoekt itself is deliberately a ClusterIP with no Ingress. It has no

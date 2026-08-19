@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/GyeongHoKim/code-search-platform/internal/render"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/render"
 )
 
 func TestSourceNumbersTheRequestedRange(t *testing.T) {

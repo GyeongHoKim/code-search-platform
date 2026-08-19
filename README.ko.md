@@ -1,5 +1,5 @@
 <!-- markdownlint-disable MD033 -->
-# code-search-platform
+# zoekt-mcp-server
 
 코딩 에이전트를 위한 self-hosted 코드 검색. 사내 Git 호스트만 연결하면 Claude Code, Codex 등
 Model Context Protocol을 쓰는 모든 도구가 팀이 볼 수 있는 모든 리포지터리를 검색할 수 있습니다.
@@ -31,7 +31,7 @@ flowchart LR
     subgraph Cluster["Kubernetes"]
         I["indexer<br/><i>CronJob</i>"]
         Z["zoekt-webserver<br/><i>ClusterIP 전용</i>"]
-        M["code-search-mcp<br/><i>유일한 노출 지점</i>"]
+        M["zoekt-mcp-server<br/><i>유일한 노출 지점</i>"]
         V[("index<br/>PVC")]
     end
 
@@ -54,7 +54,7 @@ flowchart LR
 | --- | --- | --- |
 | **indexer** | Git 호스트를 미러링하고 Zoekt 인덱스를 재생성 | 아니오 |
 | **zoekt-webserver** | trigram 인덱스와 질의 엔진 | **아니오 — ClusterIP 전용** |
-| **code-search-mcp** | MCP 툴 호출을 Zoekt 질의로 번역하고 결과를 압축 | 예, 그리고 이것만 |
+| **zoekt-mcp-server** | MCP 툴 호출을 Zoekt 질의로 번역하고 결과를 압축 | 예, 그리고 이것만 |
 
 Zoekt에는 자체 인증이 없습니다. 접근할 수 있으면 인덱싱된 모든 리포지터리를 읽을 수 있으므로,
 차트는 Zoekt에 Ingress를 붙이지 않으며 붙여서도 안 됩니다. MCP 서버가 유일한 정문이고, 그래서
@@ -63,25 +63,25 @@ Zoekt에는 자체 인증이 없습니다. 접근할 수 있으면 인덱싱된 
 ## 빠른 시작
 
 ```bash
-helm install code-search oci://ghcr.io/gyeonghokim/charts/code-search-platform \
-  --namespace code-search --create-namespace \
+helm install zoekt-mcp-server oci://ghcr.io/gyeonghokim/charts/zoekt-mcp-server \
+  --namespace zoekt-mcp --create-namespace \
   --set indexer.hostKind=gerrit \
   --set indexer.hostURL=https://gerrit.example.com \
-  --set indexer.credentials.existingSecret=git-codesearch
+  --set indexer.credentials.existingSecret=zoekt-mcp-git
 ```
 
 체크아웃에서 직접 설치할 수도 있습니다. 무엇이 생성될지 먼저 확인하는 방법이기도 합니다:
 
 ```bash
-helm template code-search deploy/helm -f deploy/helm/values-example-gerrit.yaml
-helm install code-search deploy/helm -f my-values.yaml -n code-search --create-namespace
+helm template zoekt-mcp-server deploy/helm -f deploy/helm/values-example-gerrit.yaml
+helm install zoekt-mcp-server deploy/helm -f my-values.yaml -n zoekt-mcp --create-namespace
 ```
 
 인덱서가 한 번 돌기 전까지 인덱스는 비어 있습니다. 스케줄을 기다리지 않고 지금 만들려면:
 
 ```bash
-kubectl -n code-search create job --from=cronjob/code-search-indexer first-index
-kubectl -n code-search logs -f job/first-index
+kubectl -n zoekt-mcp create job --from=cronjob/zoekt-mcp-server-indexer first-index
+kubectl -n zoekt-mcp logs -f job/first-index
 ```
 
 ## 에이전트 연결
@@ -89,26 +89,26 @@ kubectl -n code-search logs -f job/first-index
 **Claude Code**
 
 ```bash
-claude mcp add --transport http code-search https://search.example.com/mcp/code-search \
-  --header "Authorization: Bearer $CODE_SEARCH_AUTH_TOKEN"
+claude mcp add --transport http zoekt-mcp https://search.example.com/mcp/zoekt-mcp \
+  --header "Authorization: Bearer $ZOEKT_MCP_AUTH_TOKEN"
 ```
 
 **Codex** — `~/.codex/config.toml`:
 
 ```toml
-[mcp_servers.code-search]
-url = "https://search.example.com/mcp/code-search"
+[mcp_servers.zoekt-mcp]
+url = "https://search.example.com/mcp/zoekt-mcp"
 # 연결 시점에 읽어 "Authorization: Bearer ..." 로 보냅니다. 토큰이
 # config.toml 에 남지 않습니다.
-bearer_token_env_var = "CODE_SEARCH_AUTH_TOKEN"
+bearer_token_env_var = "ZOEKT_MCP_AUTH_TOKEN"
 ```
 
 **로컬 stdio** — 클라이언트가 바이너리를 직접 실행하는 경우:
 
 ```json
 {
-  "command": "code-search-mcp",
-  "env": { "CODE_SEARCH_ZOEKT_URL": "http://127.0.0.1:6070" }
+  "command": "zoekt-mcp-server",
+  "env": { "ZOEKT_MCP_UPSTREAM_URL": "http://127.0.0.1:6070" }
 }
 ```
 
@@ -130,7 +130,7 @@ bearer_token_env_var = "CODE_SEARCH_AUTH_TOKEN"
 선택입니다.
 
 **결과 개수나 컨텍스트 라인 수를 받는 도구는 없습니다.** 이 값들은 환경변수에서만 옵니다. 토큰
-예산은 서버를 운영하는 쪽의 것이고, 호출자가 올릴 수 있다면 `CODE_SEARCH_MAX_RESULTS`는 상한이
+예산은 서버를 운영하는 쪽의 것이고, 호출자가 올릴 수 있다면 `ZOEKT_MCP_MAX_RESULTS`는 상한이
 아니라 기본값에 불과해지기 때문입니다. 더 필요한 에이전트는 쿼리를 좁히거나 파일을 읽습니다.
 검색 결과가 잘리면 첫 줄이 그 사실과 전체 매치 파일 수를 알려줍니다.
 
@@ -164,15 +164,15 @@ Bitbucket은 `-project` 를 받습니다. 차트에 직접 배선한 것은 Gerr
 
 ## 인증
 
-`http` 전송은 `CODE_SEARCH_AUTH_TOKEN` 없이는 기동을 거부하고, 그 토큰을 bearer로 제시하지 않은
+`http` 전송은 `ZOEKT_MCP_AUTH_TOKEN` 없이는 기동을 거부하고, 그 토큰을 bearer로 제시하지 않은
 요청에는 `401` 을 돌려줍니다. 끄는 설정은 없습니다. 이 서버가 자체 인증이 없는 인덱스로 향하는
 유일한 정문이기 때문입니다.
 
 ```bash
-kubectl create secret generic code-search-token \
+kubectl create secret generic zoekt-mcp-token \
   --from-literal=token="$(openssl rand -base64 32)"
 
-helm upgrade code-search ... --set mcp.auth.existingSecret=code-search-token
+helm upgrade zoekt-mcp-server ... --set mcp.auth.existingSecret=zoekt-mcp-token
 ```
 
 값은 **콤마로 구분된 목록**입니다. 이것이 모든 호출자가 한꺼번에 끊기는 구간 없이 토큰을 회전할 수
@@ -198,7 +198,7 @@ Zoekt 인덱스에는 리포지터리별 권한 개념이 없습니다. 한번 �
 
 **서비스 계정의 읽기 권한 자체를 화이트리스트로** 삼으세요:
 
-1. Git 호스트에 전용 계정을 만듭니다 — `svc-codesearch` 등.
+1. Git 호스트에 전용 계정을 만듭니다 — `svc-zoekt-mcp` 등.
 2. 에이전트에게 노출할 리포지터리에만 read 권한을 부여합니다.
 3. 인덱서에 그 계정의 자격 증명을 줍니다.
 
@@ -216,15 +216,15 @@ Zoekt 인덱스에는 리포지터리별 권한 개념이 없습니다. 한번 �
 
 | 변수 | 기본값 | 역할 |
 | --- | --- | --- |
-| `CODE_SEARCH_ZOEKT_URL` | *(필수)* | `-rpc` 로 띄운 `zoekt-webserver` 의 base URL |
-| `CODE_SEARCH_TRANSPORT` | `stdio` | `stdio` 또는 `http` |
-| `CODE_SEARCH_ADDR` | `127.0.0.1:8080` | 리슨 주소, `http` 전송에만 사용 |
-| `CODE_SEARCH_AUTH_TOKEN` | *(`http` 에서 필수)* | 호출자가 제시해야 하는 bearer 토큰, 콤마 구분 |
-| `CODE_SEARCH_TIMEOUT` | `30s` | Zoekt 요청 하나의 시간 제한 |
-| `CODE_SEARCH_MAX_RESULTS` | `50` | 검색당 파일 매치 상한 (최대 500) |
-| `CODE_SEARCH_CONTEXT_LINES` | `3` | 매치 주변 라인 수 (최대 50) |
+| `ZOEKT_MCP_UPSTREAM_URL` | *(필수)* | `-rpc` 로 띄운 `zoekt-webserver` 의 base URL |
+| `ZOEKT_MCP_TRANSPORT` | `stdio` | `stdio` 또는 `http` |
+| `ZOEKT_MCP_ADDR` | `127.0.0.1:8080` | 리슨 주소, `http` 전송에만 사용 |
+| `ZOEKT_MCP_AUTH_TOKEN` | *(`http` 에서 필수)* | 호출자가 제시해야 하는 bearer 토큰, 콤마 구분 |
+| `ZOEKT_MCP_TIMEOUT` | `30s` | Zoekt 요청 하나의 시간 제한 |
+| `ZOEKT_MCP_MAX_RESULTS` | `50` | 검색당 파일 매치 상한 (최대 500) |
+| `ZOEKT_MCP_CONTEXT_LINES` | `3` | 매치 주변 라인 수 (최대 50) |
 
-`CODE_SEARCH_CONTEXT_LINES` 가 검색 한 번의 비용을 결정합니다. 3줄이면 매치를 알아보기에 충분하고,
+`ZOEKT_MCP_CONTEXT_LINES` 가 검색 한 번의 비용을 결정합니다. 3줄이면 매치를 알아보기에 충분하고,
 10줄이면 함수를 읽을 수 있지만 토큰이 대략 세 배가 됩니다.
 
 ## 개발

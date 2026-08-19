@@ -1,4 +1,4 @@
-# Toolchain for code-search-platform.
+# Toolchain for zoekt-mcp-server.
 #
 # This file is the single source of truth for tool versions -- local development,
 # git hooks, and CI (via jdx/mise-action) all resolve versions from here.

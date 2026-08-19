@@ -15,7 +15,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/GyeongHoKim/code-search-platform/internal/zoekt"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/zoekt"
 )
 
 // searchResponseJSON is a recorded /api/search body, written out by hand

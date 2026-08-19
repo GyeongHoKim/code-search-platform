@@ -6,14 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/GyeongHoKim/code-search-platform/internal/zoekt"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/zoekt"
 )
 
 // envAddr names a running zoekt-webserver to test against.
 //
 //	just dev-up
-//	CODE_SEARCH_TEST_ZOEKT_URL=http://127.0.0.1:6070 go test ./internal/mcpserver/...
-const envAddr = "CODE_SEARCH_TEST_ZOEKT_URL"
+//	ZOEKT_MCP_TEST_UPSTREAM_URL=http://127.0.0.1:6070 go test ./internal/mcpserver/...
+const envAddr = "ZOEKT_MCP_TEST_UPSTREAM_URL"
 
 // liveSearcher skips unless a real server was named, so `just test` stays
 // hermetic.

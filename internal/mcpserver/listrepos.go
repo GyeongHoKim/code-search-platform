@@ -5,7 +5,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/GyeongHoKim/code-search-platform/internal/render"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/render"
 )
 
 // everyRepo matches any repository name. Zoekt's list endpoint takes a query

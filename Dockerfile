@@ -26,22 +26,22 @@ ENV CGO_ENABLED=0
 RUN go build \
     -trimpath \
     -ldflags "-s -w \
-      -X github.com/GyeongHoKim/code-search-platform/internal/version.Version=${VERSION} \
-      -X github.com/GyeongHoKim/code-search-platform/internal/version.Commit=${COMMIT} \
-      -X github.com/GyeongHoKim/code-search-platform/internal/version.Date=${DATE}" \
-    -o /out/code-search-mcp \
-    ./cmd/code-search-mcp
+      -X github.com/GyeongHoKim/zoekt-mcp-server/internal/version.Version=${VERSION} \
+      -X github.com/GyeongHoKim/zoekt-mcp-server/internal/version.Commit=${COMMIT} \
+      -X github.com/GyeongHoKim/zoekt-mcp-server/internal/version.Date=${DATE}" \
+    -o /out/zoekt-mcp-server \
+    ./cmd/zoekt-mcp-server
 
 FROM gcr.io/distroless/static-debian12:nonroot
 
-COPY --from=build /out/code-search-mcp /usr/local/bin/code-search-mcp
+COPY --from=build /out/zoekt-mcp-server /usr/local/bin/zoekt-mcp-server
 
 # The deployed instance serves Streamable HTTP; stdio is for a client that
 # spawns the binary itself, which is not what a container is for.
-ENV CODE_SEARCH_TRANSPORT=http
-ENV CODE_SEARCH_ADDR=0.0.0.0:8080
+ENV ZOEKT_MCP_TRANSPORT=http
+ENV ZOEKT_MCP_ADDR=0.0.0.0:8080
 
 EXPOSE 8080
 USER nonroot:nonroot
 
-ENTRYPOINT ["/usr/local/bin/code-search-mcp"]
+ENTRYPOINT ["/usr/local/bin/zoekt-mcp-server"]

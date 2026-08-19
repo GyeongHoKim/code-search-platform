@@ -1,4 +1,4 @@
-# Strict lint configuration for code-search-platform.
+# Strict lint configuration for zoekt-mcp-server.
 #
 # The enabled set is curated explicitly rather than using `default: all`, so
 # upgrading golangci-lint never silently introduces new linters that break CI.
@@ -103,7 +103,7 @@ linters:
           allow:
             - $gostd
             - github.com/modelcontextprotocol/go-sdk
-            - github.com/GyeongHoKim/code-search-platform
+            - github.com/GyeongHoKim/zoekt-mcp-server
           deny:
             - pkg: math/rand
               desc: use math/rand/v2
@@ -116,7 +116,7 @@ linters:
           allow:
             - $gostd
             - github.com/modelcontextprotocol/go-sdk
-            - github.com/GyeongHoKim/code-search-platform
+            - github.com/GyeongHoKim/zoekt-mcp-server
             - github.com/google/go-cmp
           deny:
             - pkg: math/rand
@@ -133,20 +133,20 @@ linters:
           files:
             - "**/internal/render/**"
           deny:
-            - pkg: github.com/GyeongHoKim/code-search-platform/internal/mcpserver
+            - pkg: github.com/GyeongHoKim/zoekt-mcp-server/internal/mcpserver
               desc: internal/render is a leaf; the MCP layer depends on it, not the reverse
-            - pkg: github.com/GyeongHoKim/code-search-platform/internal/config
+            - pkg: github.com/GyeongHoKim/zoekt-mcp-server/internal/config
               desc: internal/render takes its limits as arguments, never by reading config
         zoekt-client-is-a-leaf:
           list-mode: lax
           files:
             - "**/internal/zoekt/**"
           deny:
-            - pkg: github.com/GyeongHoKim/code-search-platform/internal/mcpserver
+            - pkg: github.com/GyeongHoKim/zoekt-mcp-server/internal/mcpserver
               desc: internal/zoekt is a leaf; the MCP layer depends on it, not the reverse
-            - pkg: github.com/GyeongHoKim/code-search-platform/internal/render
+            - pkg: github.com/GyeongHoKim/zoekt-mcp-server/internal/render
               desc: internal/zoekt returns types; rendering them is the caller's job
-            - pkg: github.com/GyeongHoKim/code-search-platform/internal/config
+            - pkg: github.com/GyeongHoKim/zoekt-mcp-server/internal/config
               desc: internal/zoekt takes its settings as arguments, never by reading config
 
     errcheck:
@@ -276,11 +276,11 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/GyeongHoKim/code-search-platform
+        - github.com/GyeongHoKim/zoekt-mcp-server
     gci:
       sections:
         - standard
         - default
-        - prefix(github.com/GyeongHoKim/code-search-platform)
+        - prefix(github.com/GyeongHoKim/zoekt-mcp-server)
   exclusions:
     generated: strict

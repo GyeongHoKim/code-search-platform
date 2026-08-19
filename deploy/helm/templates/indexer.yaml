@@ -1,12 +1,12 @@
 {{- if .Values.indexer.enabled }}
-{{- $full := include "code-search-platform.fullname" . -}}
+{{- $full := include "zoekt-mcp-server.fullname" . -}}
 {{- if and .Values.indexer.credentials.create (not .Values.indexer.credentials.existingSecret) }}
 apiVersion: v1
 kind: Secret
 metadata:
   name: {{ $full }}-git-credentials
   labels:
-    {{- include "code-search-platform.labels" . | nindent 4 }}
+    {{- include "zoekt-mcp-server.labels" . | nindent 4 }}
     app.kubernetes.io/component: indexer
 type: Opaque
 stringData:
@@ -19,7 +19,7 @@ kind: CronJob
 metadata:
   name: {{ $full }}-indexer
   labels:
-    {{- include "code-search-platform.labels" . | nindent 4 }}
+    {{- include "zoekt-mcp-server.labels" . | nindent 4 }}
     app.kubernetes.io/component: indexer
 spec:
   schedule: {{ .Values.indexer.schedule | quote }}
@@ -34,7 +34,7 @@ spec:
       template:
         metadata:
           labels:
-            {{- include "code-search-platform.labels" . | nindent 12 }}
+            {{- include "zoekt-mcp-server.labels" . | nindent 12 }}
             app.kubernetes.io/component: indexer
         spec:
           restartPolicy: Never
@@ -68,7 +68,7 @@ spec:
                     -exclude {{ . | quote }} \
                     {{- end }}
                     {{- end }}
-                    {{- if include "code-search-platform.hasCredentials" . }}
+                    {{- if include "zoekt-mcp-server.hasCredentials" . }}
                     -http-credentials /secrets/credentials \
                     {{- end }}
                     {{- range .Values.indexer.extraMirrorArgs }}
@@ -87,7 +87,7 @@ spec:
               volumeMounts:
                 - name: index
                   mountPath: /data
-                {{- if include "code-search-platform.hasCredentials" . }}
+                {{- if include "zoekt-mcp-server.hasCredentials" . }}
                 - name: credentials
                   mountPath: /secrets
                   readOnly: true
@@ -102,9 +102,9 @@ spec:
               {{- else }}
               emptyDir: {}
               {{- end }}
-            {{- if include "code-search-platform.hasCredentials" . }}
+            {{- if include "zoekt-mcp-server.hasCredentials" . }}
             - name: credentials
               secret:
-                secretName: {{ include "code-search-platform.credentialsSecret" . }}
+                secretName: {{ include "zoekt-mcp-server.credentialsSecret" . }}
             {{- end }}
 {{- end }}

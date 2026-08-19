@@ -7,19 +7,19 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: code-search-platform
+  name: zoekt-mcp-server
   namespace: argocd
 spec:
   project: default
 
   sources:
     # The chart, straight from the upstream repository at a pinned revision.
-    - repoURL: https://github.com/GyeongHoKim/code-search-platform.git
+    - repoURL: https://github.com/GyeongHoKim/zoekt-mcp-server.git
       targetRevision: v0.1.0
       path: deploy/helm
       helm:
         valueFiles:
-          - $config/code-search/values.yaml
+          - $config/zoekt-mcp/values.yaml
 
     # Your values. Keep this repository private.
     - repoURL: https://git.example.com/infra/gitops.git
@@ -28,7 +28,7 @@ spec:
 
   destination:
     server: https://kubernetes.default.svc
-    namespace: code-search
+    namespace: zoekt-mcp
 
   syncPolicy:
     automated:

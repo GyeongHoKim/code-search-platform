@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/GyeongHoKim/code-search-platform/internal/version"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/version"
 )
 
 func TestStringIncludesEveryStamp(t *testing.T) {
