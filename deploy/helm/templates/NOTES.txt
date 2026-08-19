@@ -27,6 +27,13 @@ No Ingress is enabled, so nothing outside the cluster can reach it yet. To try
 it from your machine:
 
   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "code-search-platform.fullname" . }}-mcp {{ .Values.mcp.service.port }}:{{ .Values.mcp.service.port }}
+
+The token is required over the forwarded port too; without it every request is
+answered with 401.
+
+  export CODE_SEARCH_AUTH_TOKEN=$(kubectl -n {{ .Release.Namespace }} get secret {{ include "code-search-platform.authSecret" . }} -o jsonpath='{.data.token}' | base64 -d)
+  claude mcp add --transport http code-search http://127.0.0.1:{{ .Values.mcp.service.port }}/ \
+    --header "Authorization: Bearer $CODE_SEARCH_AUTH_TOKEN"
 {{- end }}
 
 Zoekt itself is deliberately a ClusterIP with no Ingress. It has no
