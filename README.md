@@ -178,7 +178,7 @@ kubectl create secret generic code-search-token \
 helm upgrade code-search ... --set mcp.auth.existingSecret=code-search-token
 ```
 
-The value is a **comma separated list**, which is what makes rotation possible without a window in
+The value is a **comma-separated list**, which is what makes rotation possible without a window in
 which every caller is broken: add the new token, let engineers move to it, then drop the old one.
 
 Two things this deliberately does not do. It does not rate limit — a static token is guessable at
@@ -224,7 +224,7 @@ The server itself is configured entirely by environment; the chart sets these fo
 | `CODE_SEARCH_ZOEKT_URL` | *(required)* | Base URL of a `zoekt-webserver` started with `-rpc` |
 | `CODE_SEARCH_TRANSPORT` | `stdio` | `stdio` or `http` |
 | `CODE_SEARCH_ADDR` | `127.0.0.1:8080` | Listen address, `http` transport only |
-| `CODE_SEARCH_AUTH_TOKEN` | *(required for `http`)* | Comma separated bearer tokens callers must present |
+| `CODE_SEARCH_AUTH_TOKEN` | *(required for `http`)* | Comma-separated bearer tokens callers must present |
 | `CODE_SEARCH_TIMEOUT` | `30s` | Bounds a single request to Zoekt |
 | `CODE_SEARCH_MAX_RESULTS` | `50` | Caps file matches per search (max 500) |
 | `CODE_SEARCH_CONTEXT_LINES` | `3` | Lines around each match (max 50) |
