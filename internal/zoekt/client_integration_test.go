@@ -1,6 +1,7 @@
 package zoekt_test
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -179,7 +180,7 @@ func TestLiveBadQueryIsDistinguishable(t *testing.T) {
 	if err == nil {
 		t.Fatal("Search() error = nil, want a query error")
 	}
-	if !strings.Contains(err.Error(), "rejected the query") {
+	if !errors.Is(err, zoekt.ErrBadQuery) {
 		t.Errorf("error = %v, want it to classify as ErrBadQuery", err)
 	}
 }
@@ -192,7 +193,12 @@ func TestLiveContextLinesAreNewlineTerminated(t *testing.T) {
 
 	client := liveClient(t)
 
-	result, err := client.Search(t.Context(), "ErrMissingZoektURL", zoekt.SearchOptions{NumContextLines: 2})
+	// Pinned to one file, and to a symbol declared well past its second line:
+	// Files[0] is whatever scored highest otherwise, and a match near the top
+	// of a file has a shorter window than the two lines asserted below.
+	result, err := client.Search(t.Context(),
+		`file:^internal/config/config\.go$ ErrMissingZoektURL`,
+		zoekt.SearchOptions{NumContextLines: 2})
 	if err != nil {
 		t.Fatalf("Search() error = %v, want nil", err)
 	}
