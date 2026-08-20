@@ -169,10 +169,10 @@ Bitbucket은 `-project` 를 받습니다. 차트에 직접 배선한 것은 Gerr
 유일한 정문이기 때문입니다.
 
 ```bash
-kubectl create secret generic zoekt-mcp-token \
+kubectl create secret generic zoekt-mcp-token -n zoekt-mcp \
   --from-literal=token="$(openssl rand -base64 32)"
 
-helm upgrade zoekt-mcp-server ... --set mcp.auth.existingSecret=zoekt-mcp-token
+helm upgrade zoekt-mcp-server ... -n zoekt-mcp --set mcp.auth.existingSecret=zoekt-mcp-token
 ```
 
 값은 **콤마로 구분된 목록**입니다. 이것이 모든 호출자가 한꺼번에 끊기는 구간 없이 토큰을 회전할 수

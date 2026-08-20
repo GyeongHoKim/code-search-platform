@@ -172,10 +172,10 @@ request that does not present it as a bearer token. There is no way to configure
 this server is the only front door to an index that has no authentication of its own.
 
 ```bash
-kubectl create secret generic zoekt-mcp-token \
+kubectl create secret generic zoekt-mcp-token -n zoekt-mcp \
   --from-literal=token="$(openssl rand -base64 32)"
 
-helm upgrade zoekt-mcp-server ... --set mcp.auth.existingSecret=zoekt-mcp-token
+helm upgrade zoekt-mcp-server ... -n zoekt-mcp --set mcp.auth.existingSecret=zoekt-mcp-token
 ```
 
 The value is a **comma-separated list**, which is what makes rotation possible without a window in
