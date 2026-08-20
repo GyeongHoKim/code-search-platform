@@ -283,7 +283,9 @@ restriction goes through a **client scope with an Audience mapper** instead — 
 
 ### Authentik
 
-Issuer/JWKS: `https://authentik.company/application/o/<slug>/.well-known/openid-configuration`.
+Issuer: `https://authentik.company/application/o/<slug>/` — note the trailing slash, which Authentik
+also puts in every token's `iss`; this server compares issuers with or without it. Discovery:
+`<issuer>.well-known/openid-configuration`. JWKS: `<issuer>jwks/`.
 
 **Set a Signing Key first, or nothing else here matters.** With no Signing Key selected, an
 Authentik Provider signs tokens **HS256** — symmetrically, keyed on the client secret. This

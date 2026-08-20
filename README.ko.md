@@ -278,7 +278,9 @@ Keycloak은 아직 RFC 8707 `resource` 요청 파라미터를 지원하지 않�
 
 ### Authentik
 
-Issuer/JWKS: `https://authentik.company/application/o/<slug>/.well-known/openid-configuration`.
+Issuer: `https://authentik.company/application/o/<slug>/`. 끝의 슬래시에 주의하세요. Authentik은
+토큰의 `iss`에도 이 슬래시를 넣는데, 이 서버는 issuer를 슬래시 유무와 관계없이 비교합니다.
+Discovery: `<issuer>.well-known/openid-configuration`. JWKS: `<issuer>jwks/`.
 
 **Signing Key부터 설정하세요. 안 하면 나머지는 의미가 없습니다.** Signing Key를 고르지 않으면
 Authentik Provider는 토큰을 **HS256**으로 서명합니다. client secret을 키로 쓰는 대칭 서명입니다.
