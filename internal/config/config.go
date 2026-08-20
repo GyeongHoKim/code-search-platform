@@ -62,9 +62,21 @@ var (
 	ErrInvalidDuration = errors.New("value is not a duration")
 	// ErrMissingAddr means the http transport was selected without a listen address.
 	ErrMissingAddr = errors.New("listen address is required for the http transport")
-	// ErrMissingAuthToken means the http transport was selected without a token
-	// to check callers against.
-	ErrMissingAuthToken = errors.New("auth token is required for the http transport")
+	// ErrMissingOIDCIssuerURL means the http transport was selected without an
+	// OAuth 2.1 authorization server to verify bearer tokens against.
+	ErrMissingOIDCIssuerURL = errors.New("oidc issuer url is required for the http transport")
+	// ErrInvalidOIDCIssuerURL means the value was set but is not a usable
+	// http(s) URL.
+	ErrInvalidOIDCIssuerURL = errors.New("oidc issuer url is not a valid http(s) url")
+	// ErrMissingOIDCAudience means the http transport was selected without this
+	// server's own resource identifier.
+	ErrMissingOIDCAudience = errors.New("oidc audience is required for the http transport")
+	// ErrInvalidOIDCAudience means the value was set but is not a usable
+	// http(s) URL.
+	ErrInvalidOIDCAudience = errors.New("oidc audience is not a valid http(s) url")
+	// ErrInvalidOIDCJWKSURL means the value was set but is not a usable http(s)
+	// URL.
+	ErrInvalidOIDCJWKSURL = errors.New("oidc jwks url is not a valid http(s) url")
 )
 
 // Config is everything the server needs to start, already validated.
@@ -75,10 +87,16 @@ type Config struct {
 	Transport Transport
 	// Addr is the listen address, used only by the http transport.
 	Addr string
-	// AuthTokens are the bearer tokens the http transport accepts. Several are
-	// live at once so that one can be rotated without a window in which every
-	// caller is broken.
-	AuthTokens []string
+	// OIDCIssuerURL is the OAuth 2.1 authorization server whose tokens the
+	// http transport accepts.
+	OIDCIssuerURL string
+	// OIDCAudience is this server's own resource identifier: the value a
+	// token's aud claim must contain, and the "resource" this server
+	// advertises at /.well-known/oauth-protected-resource (RFC 9728).
+	OIDCAudience string
+	// OIDCJWKSURL overrides authorization-server-metadata discovery of the
+	// signing-key endpoint. Empty means discover it from OIDCIssuerURL.
+	OIDCJWKSURL string
 	// Timeout bounds a single request to Zoekt.
 	Timeout time.Duration
 	// MaxResults caps how many file matches one search returns.
@@ -107,9 +125,9 @@ func Load(lookup Lookup) (*Config, error) {
 	if err := loadTransport(lookup, cfg); err != nil {
 		return nil, err
 	}
-	// After loadTransport: whether a token is required depends on which
-	// transport was selected.
-	if err := loadAuthTokens(lookup, cfg); err != nil {
+	// After loadTransport: whether an authorization server is required depends
+	// on which transport was selected.
+	if err := loadOIDC(lookup, cfg); err != nil {
 		return nil, err
 	}
 	if err := loadNumbers(lookup, cfg); err != nil {
@@ -119,27 +137,76 @@ func Load(lookup Lookup) (*Config, error) {
 	return cfg, nil
 }
 
+// validHTTPURL reports whether raw parses as an absolute http(s) URL.
+func validHTTPURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
+}
+
 func loadZoektURL(lookup Lookup, cfg *Config) error {
 	raw, ok := lookup(EnvPrefix + "UPSTREAM_URL")
 	raw = strings.TrimSpace(raw)
 	if !ok || raw == "" {
 		return fmt.Errorf("%s: %w", EnvPrefix+"UPSTREAM_URL", ErrMissingZoektURL)
 	}
-
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return fmt.Errorf("%s=%q: %w", EnvPrefix+"UPSTREAM_URL", raw, ErrInvalidZoektURL)
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("%s=%q: %w", EnvPrefix+"UPSTREAM_URL", raw, ErrInvalidZoektURL)
-	}
-	if parsed.Host == "" {
+	if !validHTTPURL(raw) {
 		return fmt.Errorf("%s=%q: %w", EnvPrefix+"UPSTREAM_URL", raw, ErrInvalidZoektURL)
 	}
 
 	cfg.ZoektURL = strings.TrimSuffix(raw, "/")
 
 	return nil
+}
+
+// loadOIDC reads the OAuth 2.1 authorization server and this server's own
+// resource identifier, used by the http transport to verify bearer tokens.
+//
+// The http transport is the one that puts this server on a network, and this
+// server is the only front door to an index that has no authentication of its
+// own. Starting without an issuer and an audience there would expose the
+// whole corpus, so it is a startup failure rather than a warning. Stdio has
+// no network to guard: the client spawned this process, so it is already
+// whoever owns it.
+func loadOIDC(lookup Lookup, cfg *Config) error {
+	issuer, err := loadOIDCURL(lookup, cfg, EnvPrefix+"OIDC_ISSUER_URL", true, ErrMissingOIDCIssuerURL, ErrInvalidOIDCIssuerURL)
+	if err != nil {
+		return err
+	}
+	cfg.OIDCIssuerURL = strings.TrimSuffix(issuer, "/")
+
+	audience, err := loadOIDCURL(lookup, cfg, EnvPrefix+"OIDC_AUDIENCE", true, ErrMissingOIDCAudience, ErrInvalidOIDCAudience)
+	if err != nil {
+		return err
+	}
+	cfg.OIDCAudience = audience
+
+	jwksURL, err := loadOIDCURL(lookup, cfg, EnvPrefix+"OIDC_JWKS_URL", false, nil, ErrInvalidOIDCJWKSURL)
+	if err != nil {
+		return err
+	}
+	cfg.OIDCJWKSURL = jwksURL
+
+	return nil
+}
+
+// loadOIDCURL reads key, trimmed, validating it as an http(s) URL when
+// present. If required, it additionally fails with missingErr when the http
+// transport was selected and the variable is unset or blank.
+func loadOIDCURL(lookup Lookup, cfg *Config, key string, required bool, missingErr, invalidErr error) (string, error) {
+	raw, ok := lookup(key)
+	raw = strings.TrimSpace(raw)
+
+	if required && cfg.Transport == TransportHTTP && (!ok || raw == "") {
+		return "", fmt.Errorf("%s: %w", key, missingErr)
+	}
+	if raw == "" {
+		return "", nil
+	}
+	if !validHTTPURL(raw) {
+		return "", fmt.Errorf("%s=%q: %w", key, raw, invalidErr)
+	}
+
+	return raw, nil
 }
 
 func loadTransport(lookup Lookup, cfg *Config) error {
@@ -159,30 +226,6 @@ func loadTransport(lookup Lookup, cfg *Config) error {
 	}
 	if cfg.Transport == TransportHTTP && cfg.Addr == "" {
 		return fmt.Errorf("%s: %w", EnvPrefix+"ADDR", ErrMissingAddr)
-	}
-
-	return nil
-}
-
-// loadAuthTokens reads the comma separated list of bearer tokens the http
-// transport accepts.
-//
-// The http transport is the one that puts this server on a network, and this
-// server is the only front door to an index that has no authentication of its
-// own. Starting without a token there would expose the whole corpus, so it is
-// a startup failure rather than a warning. Stdio has no network to guard: the
-// client spawned this process, so it is already whoever owns it.
-func loadAuthTokens(lookup Lookup, cfg *Config) error {
-	raw, _ := lookup(EnvPrefix + "AUTH_TOKEN")
-
-	for token := range strings.SplitSeq(raw, ",") {
-		if trimmed := strings.TrimSpace(token); trimmed != "" {
-			cfg.AuthTokens = append(cfg.AuthTokens, trimmed)
-		}
-	}
-
-	if cfg.Transport == TransportHTTP && len(cfg.AuthTokens) == 0 {
-		return fmt.Errorf("%s: %w", EnvPrefix+"AUTH_TOKEN", ErrMissingAuthToken)
 	}
 
 	return nil

@@ -83,7 +83,7 @@ cmd/zoekt-mcp-server/        entry point: flags, environment, transport selectio
 internal/config/            environment parsing and validation
 internal/zoekt/             the Zoekt JSON API client -- HTTP lives here and nowhere else
 internal/render/            Zoekt types to the compact text a model reads
-internal/httpauth/          the bearer token guard on the http transport
+internal/httpauth/          the OAuth 2.1 resource-server guard on the http transport
 internal/mcpserver/         tool definitions and registration
 internal/version/           ldflags-injected build stamps
 internal/tools/fetchdocs/   vendors docs/zoekt/ at a pinned revision
@@ -136,10 +136,15 @@ scoring metadata. Everything the model sees goes through `internal/render`, whic
 server exists instead of handing an agent a `curl` command is that something has to do this
 compaction.
 
-**Dependencies are capped.** The MCP Go SDK is the only external module allowed in shipped code;
-tests may also use `go-cmp`. `depguard` enforces it. If you find yourself reaching for a helper
-library, write the twenty lines instead — a small dependency graph is a feature of a binary that
-companies install on their own infrastructure.
+**Dependencies are capped.** The MCP Go SDK and `golang-jwt/jwt/v5` are the only external modules
+allowed in shipped code; tests may also use `go-cmp`. `depguard` enforces it. `golang-jwt` exists
+because JWT verification is the one piece of OAuth 2.1 Resource Server support the SDK's own `auth`
+package does not provide — it ships the bearer-token middleware and RFC 9728/8414 metadata types,
+but no JWT parsing or signature verification, and hand-rolling that (RSA/EC key reconstruction from
+a JWKS, algorithm-confusion defenses) is a security liability a maintained library is worth the
+dependency for. Beyond that, if you find yourself reaching for a helper library, write the twenty
+lines instead — a small dependency graph is a feature of a binary that companies install on their
+own infrastructure.
 
 ## MCP SDK notes
 

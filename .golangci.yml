@@ -93,8 +93,10 @@ linters:
   settings:
     depguard:
       rules:
-        # Shipped code: the MCP SDK is the only external module allowed. A small
-        # dependency graph is a feature of a binary companies install internally.
+        # Shipped code: the MCP SDK and golang-jwt (JWT verification, which the
+        # SDK's own auth scaffolding does not provide) are the only external
+        # modules allowed. A small dependency graph is a feature of a binary
+        # companies install internally.
         main:
           list-mode: strict
           files:
@@ -103,6 +105,7 @@ linters:
           allow:
             - $gostd
             - github.com/modelcontextprotocol/go-sdk
+            - github.com/golang-jwt/jwt/v5
             - github.com/GyeongHoKim/zoekt-mcp-server
           deny:
             - pkg: math/rand
@@ -116,6 +119,7 @@ linters:
           allow:
             - $gostd
             - github.com/modelcontextprotocol/go-sdk
+            - github.com/golang-jwt/jwt/v5
             - github.com/GyeongHoKim/zoekt-mcp-server
             - github.com/google/go-cmp
           deny:

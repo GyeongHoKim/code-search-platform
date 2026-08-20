@@ -2,7 +2,6 @@ package config_test
 
 import (
 	"errors"
-	"slices"
 	"testing"
 	"time"
 
@@ -20,9 +19,21 @@ func env(vars map[string]string) config.Lookup {
 }
 
 const (
-	zoektURL  = "http://zoekt:6070"
-	authToken = "test-token"
+	zoektURL     = "http://zoekt:6070"
+	oidcIssuer   = "https://dex.example.com"
+	oidcAudience = "https://search.example.com/mcp"
 )
+
+// httpVars is the minimal set of variables that satisfy the http transport's
+// requirements, for tests whose focus is something else.
+func httpVars() map[string]string {
+	return map[string]string{
+		config.EnvPrefix + "UPSTREAM_URL":    zoektURL,
+		config.EnvPrefix + "TRANSPORT":       "http",
+		config.EnvPrefix + "OIDC_ISSUER_URL": oidcIssuer,
+		config.EnvPrefix + "OIDC_AUDIENCE":   oidcAudience,
+	}
+}
 
 func TestLoadDefaults(t *testing.T) {
 	t.Parallel()
@@ -95,20 +106,51 @@ func TestLoadRejects(t *testing.T) {
 			},
 			want: config.ErrUnknownTransport,
 		},
-		"http transport without an auth token": {
+		"http transport without an oidc issuer": {
 			vars: map[string]string{
-				config.EnvPrefix + "UPSTREAM_URL": zoektURL,
-				config.EnvPrefix + "TRANSPORT":    "http",
+				config.EnvPrefix + "UPSTREAM_URL":  zoektURL,
+				config.EnvPrefix + "TRANSPORT":     "http",
+				config.EnvPrefix + "OIDC_AUDIENCE": oidcAudience,
 			},
-			want: config.ErrMissingAuthToken,
+			want: config.ErrMissingOIDCIssuerURL,
 		},
-		"http transport with a blank auth token": {
+		"http transport with a blank oidc issuer": {
 			vars: map[string]string{
-				config.EnvPrefix + "UPSTREAM_URL": zoektURL,
-				config.EnvPrefix + "TRANSPORT":    "http",
-				config.EnvPrefix + "AUTH_TOKEN":   "  ,  ,",
+				config.EnvPrefix + "UPSTREAM_URL":    zoektURL,
+				config.EnvPrefix + "TRANSPORT":       "http",
+				config.EnvPrefix + "OIDC_ISSUER_URL": "   ",
+				config.EnvPrefix + "OIDC_AUDIENCE":   oidcAudience,
 			},
-			want: config.ErrMissingAuthToken,
+			want: config.ErrMissingOIDCIssuerURL,
+		},
+		"http transport without an oidc audience": {
+			vars: map[string]string{
+				config.EnvPrefix + "UPSTREAM_URL":    zoektURL,
+				config.EnvPrefix + "TRANSPORT":       "http",
+				config.EnvPrefix + "OIDC_ISSUER_URL": oidcIssuer,
+			},
+			want: config.ErrMissingOIDCAudience,
+		},
+		"oidc issuer url without a scheme": {
+			vars: map[string]string{
+				config.EnvPrefix + "UPSTREAM_URL":    zoektURL,
+				config.EnvPrefix + "OIDC_ISSUER_URL": "dex:5556",
+			},
+			want: config.ErrInvalidOIDCIssuerURL,
+		},
+		"oidc audience without a scheme": {
+			vars: map[string]string{
+				config.EnvPrefix + "UPSTREAM_URL":  zoektURL,
+				config.EnvPrefix + "OIDC_AUDIENCE": "search.example.com/mcp",
+			},
+			want: config.ErrInvalidOIDCAudience,
+		},
+		"oidc jwks url without a scheme": {
+			vars: map[string]string{
+				config.EnvPrefix + "UPSTREAM_URL":  zoektURL,
+				config.EnvPrefix + "OIDC_JWKS_URL": "dex:5556/keys",
+			},
+			want: config.ErrInvalidOIDCJWKSURL,
 		},
 		"non numeric max results": {
 			vars: map[string]string{
@@ -179,12 +221,12 @@ func TestLoadAcceptsZeroContextLines(t *testing.T) {
 func TestLoadHTTPTransport(t *testing.T) {
 	t.Parallel()
 
-	cfg, err := config.Load(env(map[string]string{
-		config.EnvPrefix + "UPSTREAM_URL": zoektURL,
-		config.EnvPrefix + "TRANSPORT":    "HTTP",
-		config.EnvPrefix + "ADDR":         ":9090",
-		config.EnvPrefix + "AUTH_TOKEN":   authToken,
-	}))
+	vars := httpVars()
+	vars[config.EnvPrefix+"TRANSPORT"] = "HTTP"
+	vars[config.EnvPrefix+"ADDR"] = ":9090"
+	vars[config.EnvPrefix+"OIDC_JWKS_URL"] = oidcIssuer + "/keys"
+
+	cfg, err := config.Load(env(vars))
 	if err != nil {
 		t.Fatalf("Load() error = %v, want nil", err)
 	}
@@ -195,38 +237,41 @@ func TestLoadHTTPTransport(t *testing.T) {
 	if cfg.Addr != ":9090" {
 		t.Errorf("Addr = %q, want %q", cfg.Addr, ":9090")
 	}
-	if len(cfg.AuthTokens) != 1 || cfg.AuthTokens[0] != authToken {
-		t.Errorf("AuthTokens = %v, want [%q]", cfg.AuthTokens, authToken)
+	if cfg.OIDCIssuerURL != oidcIssuer {
+		t.Errorf("OIDCIssuerURL = %q, want %q", cfg.OIDCIssuerURL, oidcIssuer)
+	}
+	if cfg.OIDCAudience != oidcAudience {
+		t.Errorf("OIDCAudience = %q, want %q", cfg.OIDCAudience, oidcAudience)
+	}
+	if want := oidcIssuer + "/keys"; cfg.OIDCJWKSURL != want {
+		t.Errorf("OIDCJWKSURL = %q, want %q", cfg.OIDCJWKSURL, want)
 	}
 }
 
-func TestLoadSplitsAuthTokens(t *testing.T) {
+func TestLoadTrimsTrailingSlashFromOIDCIssuerURL(t *testing.T) {
 	t.Parallel()
 
-	// A comma separated list is what makes rotation possible without a window
-	// in which every caller is broken: add the new token, let callers move,
-	// then drop the old one.
-	cfg, err := config.Load(env(map[string]string{
-		config.EnvPrefix + "UPSTREAM_URL": zoektURL,
-		config.EnvPrefix + "TRANSPORT":    "http",
-		config.EnvPrefix + "AUTH_TOKEN":   "  old  , new ,, ",
-	}))
+	vars := httpVars()
+	vars[config.EnvPrefix+"OIDC_ISSUER_URL"] = oidcIssuer + "/"
+
+	cfg, err := config.Load(env(vars))
 	if err != nil {
 		t.Fatalf("Load() error = %v, want nil", err)
 	}
 
-	want := []string{"old", "new"}
-	if !slices.Equal(cfg.AuthTokens, want) {
-		t.Errorf("AuthTokens = %v, want %v", cfg.AuthTokens, want)
+	// A caller building cfg.OIDCIssuerURL+"/.well-known/..." should never
+	// produce a double slash.
+	if cfg.OIDCIssuerURL != oidcIssuer {
+		t.Errorf("OIDCIssuerURL = %q, want %q", cfg.OIDCIssuerURL, oidcIssuer)
 	}
 }
 
-func TestLoadDoesNotRequireAnAuthTokenOnStdio(t *testing.T) {
+func TestLoadDoesNotRequireOIDCOnStdio(t *testing.T) {
 	t.Parallel()
 
 	// Stdio has no network to guard: the client spawned this process, so the
-	// caller is already whoever owns it. Demanding a token there would only
-	// make running the server locally harder.
+	// caller is already whoever owns it. Demanding an authorization server
+	// there would only make running the server locally harder.
 	cfg, err := config.Load(env(map[string]string{
 		config.EnvPrefix + "UPSTREAM_URL": zoektURL,
 	}))
@@ -234,7 +279,10 @@ func TestLoadDoesNotRequireAnAuthTokenOnStdio(t *testing.T) {
 		t.Fatalf("Load() error = %v, want nil", err)
 	}
 
-	if len(cfg.AuthTokens) != 0 {
-		t.Errorf("AuthTokens = %v, want none", cfg.AuthTokens)
+	if cfg.OIDCIssuerURL != "" {
+		t.Errorf("OIDCIssuerURL = %q, want none", cfg.OIDCIssuerURL)
+	}
+	if cfg.OIDCAudience != "" {
+		t.Errorf("OIDCAudience = %q, want none", cfg.OIDCAudience)
 	}
 }

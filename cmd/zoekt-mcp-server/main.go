@@ -45,6 +45,15 @@ const readTimeout = 30 * time.Second
 // has been asked to stop.
 const shutdownGrace = 10 * time.Second
 
+// oidcStartupTimeout bounds discovering the authorization server and priming
+// the signing-key cache. A slow or unreachable IdP fails the process at
+// startup rather than hanging it indefinitely.
+const oidcStartupTimeout = 15 * time.Second
+
+// oidcClockSkew tolerates a small difference between this server's clock and
+// the authorization server's when checking a token's expiration.
+const oidcClockSkew = 60 * time.Second
+
 func main() {
 	if err := run(context.Background(), os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -112,7 +121,19 @@ func serve(ctx context.Context, lookup config.Lookup, stderr io.Writer) error {
 	case config.TransportStdio:
 		return serveStdio(ctx, server, logger, cfg)
 	case config.TransportHTTP:
-		return serveHTTP(ctx, server, logger, cfg)
+		oidcCtx, cancel := context.WithTimeout(ctx, oidcStartupTimeout)
+		guard, guardErr := httpauth.New(oidcCtx, httpauth.Config{
+			IssuerURL: cfg.OIDCIssuerURL,
+			Audience:  cfg.OIDCAudience,
+			JWKSURL:   cfg.OIDCJWKSURL,
+			ClockSkew: oidcClockSkew,
+		})
+		cancel()
+		if guardErr != nil {
+			return fmt.Errorf("configuring oauth: %w", guardErr)
+		}
+
+		return serveHTTP(ctx, server, logger, cfg, guard)
 	default:
 		// config.Load rejects anything else, so reaching here means the
 		// validation and this switch have drifted apart.
@@ -152,20 +173,25 @@ func serveStdio(ctx context.Context, server *mcp.Server, logger *slog.Logger, cf
 }
 
 // httpHandler builds what the http transport answers with: the MCP transport
-// behind the bearer token guard.
+// behind the OAuth guard, plus the guard's own RFC 9728 metadata at a fixed,
+// unauthenticated path.
 //
-// The two are wired together here rather than in serveHTTP so that a test can
-// exercise this exact pairing without binding a port. Nothing reaches the
-// server without passing the guard.
-func httpHandler(server *mcp.Server, cfg *config.Config) http.Handler {
-	handler := mcp.NewStreamableHTTPHandler(
+// Wired together here rather than in serveHTTP so that a test can exercise
+// this exact pairing without binding a port. Nothing but the metadata reaches
+// the server without passing the guard.
+func httpHandler(server *mcp.Server, guard *httpauth.Guard) http.Handler {
+	mcpHandler := mcp.NewStreamableHTTPHandler(
 		// Called per request, which is the hook where per-caller
 		// authorisation belongs once tokens carry an identity.
 		func(*http.Request) *mcp.Server { return server },
 		nil,
 	)
 
-	return httpauth.RequireToken(cfg.AuthTokens)(handler)
+	mux := http.NewServeMux()
+	mux.Handle("/.well-known/oauth-protected-resource", guard.ProtectedResourceMetadataHandler())
+	mux.Handle("/", guard.RequireToken(mcpHandler))
+
+	return mux
 }
 
 // serveHTTP serves Streamable HTTP on the configured address.
@@ -173,10 +199,10 @@ func httpHandler(server *mcp.Server, cfg *config.Config) http.Handler {
 // This is the transport a deployed instance uses: the server runs in the
 // cluster and agents reach it over the network, so it is also the layer where
 // authentication and audit logging belong.
-func serveHTTP(ctx context.Context, server *mcp.Server, logger *slog.Logger, cfg *config.Config) error {
+func serveHTTP(ctx context.Context, server *mcp.Server, logger *slog.Logger, cfg *config.Config, guard *httpauth.Guard) error {
 	httpServer := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpHandler(server, cfg),
+		Handler:           httpHandler(server, guard),
 		ReadHeaderTimeout: readHeaderTimeout,
 		ReadTimeout:       readTimeout,
 	}
@@ -184,13 +210,12 @@ func serveHTTP(ctx context.Context, server *mcp.Server, logger *slog.Logger, cfg
 	listening := make(chan error, 1)
 	go func() { listening <- httpServer.ListenAndServe() }()
 
-	// The count, never a token. A diagnostic that prints a credential is a
-	// credential in every log aggregator the operator owns.
 	logger.Info("serving over http",
 		"addr", cfg.Addr,
 		"zoekt", cfg.ZoektURL,
 		"version", version.Version,
-		"accepted_tokens", len(cfg.AuthTokens),
+		"oidc_issuer", cfg.OIDCIssuerURL,
+		"oidc_audience", cfg.OIDCAudience,
 	)
 
 	select {

@@ -38,12 +38,3 @@ app.kubernetes.io/part-of: zoekt-mcp-server
 {{- define "zoekt-mcp-server.hasCredentials" -}}
 {{- if or .Values.indexer.credentials.existingSecret .Values.indexer.credentials.create -}}true{{- end -}}
 {{- end -}}
-
-{{/* The name of the Secret holding the MCP server's bearer token. */}}
-{{- define "zoekt-mcp-server.authSecret" -}}
-{{- if .Values.mcp.auth.existingSecret -}}
-{{- .Values.mcp.auth.existingSecret -}}
-{{- else -}}
-{{- printf "%s-auth" (include "zoekt-mcp-server.fullname" .) -}}
-{{- end -}}
-{{- end -}}

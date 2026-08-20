@@ -1,61 +1,132 @@
-// Package httpauth guards the http transport with a bearer token.
+// Package httpauth guards the http transport by verifying that a request's
+// bearer token was issued, for this server, by the configured OAuth 2.1
+// authorization server.
 //
-// It is a leaf: it takes the tokens it accepts as an argument rather than
-// reading configuration, so it can be tested without an environment and so the
-// static check here can be swapped for a JWKS one when an OAuth 2.1 server
-// arrives. Everything above it keeps calling RequireToken.
+// It is a leaf: it takes the issuer and audience as arguments rather than
+// reading configuration, so it can be tested without an environment. New does
+// one network round trip -- discovering (or being told) where to fetch
+// signing keys, and fetching them once to prime the cache -- so a
+// misconfigured or unreachable authorization server fails the process at
+// startup rather than 500ing every request that ever reaches it.
 package httpauth
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/subtle"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
+	"github.com/modelcontextprotocol/go-sdk/oauthex"
 )
 
-// RequireToken returns middleware that answers 401 unless the request carries
-// one of accepted as its bearer token.
-func RequireToken(accepted []string) func(http.Handler) http.Handler {
-	// Hashed once here rather than per request, and stored instead of the
-	// tokens themselves so a heap dump of a running server does not hand over
-	// the credentials it was started with.
-	digests := make([][sha256.Size]byte, len(accepted))
-	for i, token := range accepted {
-		digests[i] = sha256.Sum256([]byte(token))
-	}
+// errNoJWKSURI means the authorization server's metadata did not advertise
+// where to fetch its signing keys.
+var errNoJWKSURI = errors.New("authorization server metadata has no jwks_uri")
 
-	return auth.RequireBearerToken(verify(digests), &auth.RequireBearerTokenOptions{
-		// A static token carries no expiry. The alternative is inventing one
-		// the operator did not ask for and cannot see.
-		AllowMissingExpiration: true,
-	})
+// defaultHTTPTimeout bounds discovery and JWKS requests when Config.HTTPClient
+// is unset.
+const defaultHTTPTimeout = 10 * time.Second
+
+// Config is what New needs to build a Guard.
+type Config struct {
+	// HTTPClient is used for discovery and JWKS fetches. Nil uses a client
+	// bounded by defaultHTTPTimeout.
+	HTTPClient *http.Client
+	// IssuerURL is the OAuth 2.1 authorization server whose tokens this Guard
+	// accepts.
+	IssuerURL string
+	// Audience is this server's own resource identifier: the value a token's
+	// aud claim must contain, and the "resource" this Guard advertises at
+	// /.well-known/oauth-protected-resource (RFC 9728).
+	Audience string
+	// JWKSURL overrides authorization-server-metadata discovery of the
+	// signing-key endpoint. Empty means discover it from IssuerURL.
+	JWKSURL string
+	// ClockSkew tolerates a small difference between this server's clock and
+	// the authorization server's when checking a token's expiration.
+	ClockSkew time.Duration
 }
 
-// verify reports whether token hashes to one of accepted.
-func verify(accepted [][sha256.Size]byte) auth.TokenVerifier {
-	return func(_ context.Context, token string, _ *http.Request) (*auth.TokenInfo, error) {
-		// Digests, not the tokens: ConstantTimeCompare returns at once when
-		// the lengths differ, so comparing raw tokens times a guess of the
-		// wrong length faster than a guess of the right one. Hashing makes
-		// every comparison the same 32 bytes.
-		got := sha256.Sum256([]byte(token))
+// Guard verifies bearer tokens and answers this server's own RFC 9728
+// protected resource metadata.
+type Guard struct {
+	middleware func(http.Handler) http.Handler
+	metadata   http.Handler
+}
 
-		// Every candidate is compared, so neither the answer nor the position
-		// of a match leaks through how long this took.
-		var match int
-		for _, want := range accepted {
-			match |= subtle.ConstantTimeCompare(got[:], want[:])
-		}
+// RequireToken wraps next so that only requests carrying a token this Guard
+// accepts reach it.
+func (g *Guard) RequireToken(next http.Handler) http.Handler {
+	return g.middleware(next)
+}
 
-		if match != 1 {
-			return nil, fmt.Errorf("bearer token: %w", auth.ErrInvalidToken)
-		}
+// ProtectedResourceMetadataHandler serves RFC 9728 metadata describing this
+// resource server, meant for the /.well-known/oauth-protected-resource path.
+func (g *Guard) ProtectedResourceMetadataHandler() http.Handler {
+	return g.metadata
+}
 
-		// Empty: a static token says only that the caller holds it. Identity
-		// and scopes arrive with OAuth, and belong in this struct then.
-		return &auth.TokenInfo{}, nil
+// New discovers cfg.IssuerURL's signing keys (or fetches them directly from
+// cfg.JWKSURL, if set), primes the key cache with one fetch, and returns a
+// Guard that verifies tokens against them.
+func New(ctx context.Context, cfg Config) (*Guard, error) {
+	httpClient := cfg.HTTPClient
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: defaultHTTPTimeout}
 	}
+
+	jwksURL := cfg.JWKSURL
+	if jwksURL == "" {
+		meta, err := auth.GetAuthServerMetadata(ctx, cfg.IssuerURL, httpClient)
+		if err != nil {
+			return nil, fmt.Errorf("discovering %s: %w", cfg.IssuerURL, err)
+		}
+		if meta.JWKSURI == "" {
+			return nil, fmt.Errorf("%s: %w", cfg.IssuerURL, errNoJWKSURI)
+		}
+		jwksURL = meta.JWKSURI
+	}
+
+	keys := newKeySet(jwksURL, httpClient)
+	if err := keys.prime(ctx); err != nil {
+		return nil, fmt.Errorf("fetching signing keys from %s: %w", jwksURL, err)
+	}
+
+	resourceMetadataURL, err := wellKnownURL(cfg.Audience)
+	if err != nil {
+		return nil, fmt.Errorf("building resource metadata url: %w", err)
+	}
+
+	middleware := auth.RequireBearerToken(
+		verifyJWT(keys, cfg.IssuerURL, cfg.Audience, cfg.ClockSkew),
+		&auth.RequireBearerTokenOptions{
+			ResourceMetadataURL: resourceMetadataURL,
+			ClockSkew:           cfg.ClockSkew,
+		},
+	)
+	metadata := auth.ProtectedResourceMetadataHandler(&oauthex.ProtectedResourceMetadata{
+		Resource:               cfg.Audience,
+		AuthorizationServers:   []string{cfg.IssuerURL},
+		BearerMethodsSupported: []string{"header"},
+	})
+
+	return &Guard{middleware: middleware, metadata: metadata}, nil
+}
+
+// wellKnownURL builds the /.well-known/oauth-protected-resource URL this
+// server answers at, from its own resource identifier. This server exposes
+// exactly one resource per instance, so the metadata lives at the fixed
+// well-known path rather than one keyed by the resource's own path segment --
+// RFC 9728 §3.1 permits either.
+func wellKnownURL(audience string) (string, error) {
+	parsed, err := url.Parse(audience)
+	if err != nil {
+		return "", fmt.Errorf("%q: %w", audience, err)
+	}
+	parsed.Path, parsed.RawQuery, parsed.Fragment = "/.well-known/oauth-protected-resource", "", ""
+
+	return parsed.String(), nil
 }

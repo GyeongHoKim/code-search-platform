@@ -19,21 +19,26 @@ the index into that volume yourself.
 {{- if .Values.ingress.enabled }}
 Agents reach it at https://{{ .Values.ingress.host }}{{ .Values.ingress.path }}
 
-  export ZOEKT_MCP_AUTH_TOKEN=$(kubectl -n {{ .Release.Namespace }} get secret {{ include "zoekt-mcp-server.authSecret" . }} -o jsonpath='{.data.token}' | base64 -d)
+An agent authenticates against your identity provider ({{ .Values.mcp.oidc.issuerURL }})
+to obtain a bearer token -- this chart has no secret to hand you, the token
+comes from your IdP itself:
+
+  export ZOEKT_MCP_TOKEN=<access token from your identity provider>
   claude mcp add --transport http zoekt-mcp https://{{ .Values.ingress.host }}{{ .Values.ingress.path }} \
-    --header "Authorization: Bearer $ZOEKT_MCP_AUTH_TOKEN"
+    --header "Authorization: Bearer $ZOEKT_MCP_TOKEN"
 {{- else }}
 No Ingress is enabled, so nothing outside the cluster can reach it yet. To try
 it from your machine:
 
   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "zoekt-mcp-server.fullname" . }}-mcp {{ .Values.mcp.service.port }}:{{ .Values.mcp.service.port }}
 
-The token is required over the forwarded port too; without it every request is
-answered with 401.
+A bearer token is required over the forwarded port too; without one every
+request is answered with 401. Obtain it from your identity provider
+({{ .Values.mcp.oidc.issuerURL }}), the same as any other client would:
 
-  export ZOEKT_MCP_AUTH_TOKEN=$(kubectl -n {{ .Release.Namespace }} get secret {{ include "zoekt-mcp-server.authSecret" . }} -o jsonpath='{.data.token}' | base64 -d)
+  export ZOEKT_MCP_TOKEN=<access token from your identity provider>
   claude mcp add --transport http zoekt-mcp http://127.0.0.1:{{ .Values.mcp.service.port }}/ \
-    --header "Authorization: Bearer $ZOEKT_MCP_AUTH_TOKEN"
+    --header "Authorization: Bearer $ZOEKT_MCP_TOKEN"
 {{- end }}
 
 Zoekt itself is deliberately a ClusterIP with no Ingress. It has no
