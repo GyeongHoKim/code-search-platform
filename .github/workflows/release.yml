@@ -115,11 +115,16 @@ jobs:
           version="${TAG#v}"
           helm package deploy/helm             --version "$version"             --app-version "$version"             --destination dist
 
+      # An OCI repository name is lowercase, and a GitHub login is not. The
+      # image job never hit this because docker/metadata-action lowercases for
+      # you; helm push takes the reference exactly as written.
       - name: Push to GHCR
         env:
           TAG: ${{ github.ref_name }}
+          OWNER: ${{ github.repository_owner }}
         run: |
           set -euo pipefail
           echo "${{ secrets.GITHUB_TOKEN }}"             | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
           version="${TAG#v}"
-          helm push "dist/zoekt-mcp-server-${version}.tgz"             oci://ghcr.io/${{ github.repository_owner }}/charts
+          owner="$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')"
+          helm push "dist/zoekt-mcp-server-${version}.tgz"             "oci://ghcr.io/${owner}/charts"
