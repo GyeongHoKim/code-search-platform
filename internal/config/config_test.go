@@ -110,6 +110,27 @@ func TestLoadRejects(t *testing.T) {
 			},
 			want: config.ErrMissingAuthToken,
 		},
+		"oidc issuer url without a scheme": {
+			vars: map[string]string{
+				config.EnvPrefix + "UPSTREAM_URL":    zoektURL,
+				config.EnvPrefix + "OIDC_ISSUER_URL": "dex:5556",
+			},
+			want: config.ErrInvalidOIDCIssuerURL,
+		},
+		"oidc audience without a scheme": {
+			vars: map[string]string{
+				config.EnvPrefix + "UPSTREAM_URL":  zoektURL,
+				config.EnvPrefix + "OIDC_AUDIENCE": "search.example.com/mcp",
+			},
+			want: config.ErrInvalidOIDCAudience,
+		},
+		"oidc jwks url without a scheme": {
+			vars: map[string]string{
+				config.EnvPrefix + "UPSTREAM_URL":  zoektURL,
+				config.EnvPrefix + "OIDC_JWKS_URL": "dex:5556/keys",
+			},
+			want: config.ErrInvalidOIDCJWKSURL,
+		},
 		"non numeric max results": {
 			vars: map[string]string{
 				config.EnvPrefix + "UPSTREAM_URL": zoektURL,
@@ -218,6 +239,34 @@ func TestLoadSplitsAuthTokens(t *testing.T) {
 	want := []string{"old", "new"}
 	if !slices.Equal(cfg.AuthTokens, want) {
 		t.Errorf("AuthTokens = %v, want %v", cfg.AuthTokens, want)
+	}
+}
+
+func TestLoadParsesOIDCConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := config.Load(env(map[string]string{
+		config.EnvPrefix + "UPSTREAM_URL":    zoektURL,
+		config.EnvPrefix + "TRANSPORT":       "http",
+		config.EnvPrefix + "AUTH_TOKEN":      authToken,
+		config.EnvPrefix + "OIDC_ISSUER_URL": "https://dex.example.com/",
+		config.EnvPrefix + "OIDC_AUDIENCE":   "https://search.example.com/mcp",
+		config.EnvPrefix + "OIDC_JWKS_URL":   "https://dex.example.com/keys",
+	}))
+	if err != nil {
+		t.Fatalf("Load() error = %v, want nil", err)
+	}
+
+	// Trimmed the same way ZoektURL is, so a caller building
+	// cfg.OIDCIssuerURL+"/foo" never produces a double slash.
+	if want := "https://dex.example.com"; cfg.OIDCIssuerURL != want {
+		t.Errorf("OIDCIssuerURL = %q, want %q", cfg.OIDCIssuerURL, want)
+	}
+	if want := "https://search.example.com/mcp"; cfg.OIDCAudience != want {
+		t.Errorf("OIDCAudience = %q, want %q", cfg.OIDCAudience, want)
+	}
+	if want := "https://dex.example.com/keys"; cfg.OIDCJWKSURL != want {
+		t.Errorf("OIDCJWKSURL = %q, want %q", cfg.OIDCJWKSURL, want)
 	}
 }
 

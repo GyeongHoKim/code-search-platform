@@ -65,6 +65,21 @@ var (
 	// ErrMissingAuthToken means the http transport was selected without a token
 	// to check callers against.
 	ErrMissingAuthToken = errors.New("auth token is required for the http transport")
+	// ErrMissingOIDCIssuerURL means the http transport was selected without an
+	// OAuth 2.1 authorization server to verify bearer tokens against.
+	ErrMissingOIDCIssuerURL = errors.New("oidc issuer url is required for the http transport")
+	// ErrInvalidOIDCIssuerURL means the value was set but is not a usable
+	// http(s) URL.
+	ErrInvalidOIDCIssuerURL = errors.New("oidc issuer url is not a valid http(s) url")
+	// ErrMissingOIDCAudience means the http transport was selected without this
+	// server's own resource identifier.
+	ErrMissingOIDCAudience = errors.New("oidc audience is required for the http transport")
+	// ErrInvalidOIDCAudience means the value was set but is not a usable
+	// http(s) URL.
+	ErrInvalidOIDCAudience = errors.New("oidc audience is not a valid http(s) url")
+	// ErrInvalidOIDCJWKSURL means the value was set but is not a usable http(s)
+	// URL.
+	ErrInvalidOIDCJWKSURL = errors.New("oidc jwks url is not a valid http(s) url")
 )
 
 // Config is everything the server needs to start, already validated.
@@ -75,6 +90,16 @@ type Config struct {
 	Transport Transport
 	// Addr is the listen address, used only by the http transport.
 	Addr string
+	// OIDCIssuerURL is the OAuth 2.1 authorization server whose tokens the
+	// http transport accepts.
+	OIDCIssuerURL string
+	// OIDCAudience is this server's own resource identifier: the value a
+	// token's aud claim must contain, and the "resource" this server
+	// advertises at /.well-known/oauth-protected-resource (RFC 9728).
+	OIDCAudience string
+	// OIDCJWKSURL overrides authorization-server-metadata discovery of the
+	// signing-key endpoint. Empty means discover it from OIDCIssuerURL.
+	OIDCJWKSURL string
 	// AuthTokens are the bearer tokens the http transport accepts. Several are
 	// live at once so that one can be rotated without a window in which every
 	// caller is broken.
@@ -112,11 +137,20 @@ func Load(lookup Lookup) (*Config, error) {
 	if err := loadAuthTokens(lookup, cfg); err != nil {
 		return nil, err
 	}
+	if err := loadOIDC(lookup, cfg); err != nil {
+		return nil, err
+	}
 	if err := loadNumbers(lookup, cfg); err != nil {
 		return nil, err
 	}
 
 	return cfg, nil
+}
+
+// validHTTPURL reports whether raw parses as an absolute http(s) URL.
+func validHTTPURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
 }
 
 func loadZoektURL(lookup Lookup, cfg *Config) error {
@@ -125,19 +159,46 @@ func loadZoektURL(lookup Lookup, cfg *Config) error {
 	if !ok || raw == "" {
 		return fmt.Errorf("%s: %w", EnvPrefix+"UPSTREAM_URL", ErrMissingZoektURL)
 	}
-
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return fmt.Errorf("%s=%q: %w", EnvPrefix+"UPSTREAM_URL", raw, ErrInvalidZoektURL)
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("%s=%q: %w", EnvPrefix+"UPSTREAM_URL", raw, ErrInvalidZoektURL)
-	}
-	if parsed.Host == "" {
+	if !validHTTPURL(raw) {
 		return fmt.Errorf("%s=%q: %w", EnvPrefix+"UPSTREAM_URL", raw, ErrInvalidZoektURL)
 	}
 
 	cfg.ZoektURL = strings.TrimSuffix(raw, "/")
+
+	return nil
+}
+
+// loadOIDC reads the OAuth 2.1 authorization server and this server's own
+// resource identifier, used by the http transport to verify bearer tokens.
+//
+// Not yet required for the http transport here: the http transport is still
+// gated by loadAuthTokens's static token until the OAuth swap replaces it, so
+// this only validates the format of whichever of these three variables were
+// set.
+func loadOIDC(lookup Lookup, cfg *Config) error {
+	if raw, ok := lookup(EnvPrefix + "OIDC_ISSUER_URL"); ok && strings.TrimSpace(raw) != "" {
+		issuer := strings.TrimSpace(raw)
+		if !validHTTPURL(issuer) {
+			return fmt.Errorf("%s=%q: %w", EnvPrefix+"OIDC_ISSUER_URL", issuer, ErrInvalidOIDCIssuerURL)
+		}
+		cfg.OIDCIssuerURL = strings.TrimSuffix(issuer, "/")
+	}
+
+	if raw, ok := lookup(EnvPrefix + "OIDC_AUDIENCE"); ok && strings.TrimSpace(raw) != "" {
+		audience := strings.TrimSpace(raw)
+		if !validHTTPURL(audience) {
+			return fmt.Errorf("%s=%q: %w", EnvPrefix+"OIDC_AUDIENCE", audience, ErrInvalidOIDCAudience)
+		}
+		cfg.OIDCAudience = audience
+	}
+
+	if raw, ok := lookup(EnvPrefix + "OIDC_JWKS_URL"); ok && strings.TrimSpace(raw) != "" {
+		jwksURL := strings.TrimSpace(raw)
+		if !validHTTPURL(jwksURL) {
+			return fmt.Errorf("%s=%q: %w", EnvPrefix+"OIDC_JWKS_URL", jwksURL, ErrInvalidOIDCJWKSURL)
+		}
+		cfg.OIDCJWKSURL = jwksURL
+	}
 
 	return nil
 }
