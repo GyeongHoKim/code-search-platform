@@ -1,4 +1,4 @@
-// Command code-search-mcp exposes an indexed corpus of source code over the
+// Command zoekt-mcp-server exposes an indexed corpus of source code over the
 // Model Context Protocol, so that any MCP-capable agent can search a company's
 // internal repositories without leaving its session.
 //
@@ -24,11 +24,11 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/GyeongHoKim/code-search-platform/internal/config"
-	"github.com/GyeongHoKim/code-search-platform/internal/httpauth"
-	"github.com/GyeongHoKim/code-search-platform/internal/mcpserver"
-	"github.com/GyeongHoKim/code-search-platform/internal/version"
-	"github.com/GyeongHoKim/code-search-platform/internal/zoekt"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/config"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/httpauth"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/mcpserver"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/version"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/zoekt"
 )
 
 // readHeaderTimeout bounds how long a client may take to send its headers.
@@ -51,7 +51,7 @@ func main() {
 			return
 		}
 
-		log.New(os.Stderr, "code-search-mcp: ", 0).Println(err)
+		log.New(os.Stderr, "zoekt-mcp-server: ", 0).Println(err)
 		os.Exit(1)
 	}
 }
@@ -63,7 +63,7 @@ func main() {
 // invariant this binary cannot get wrong: on stdio, stdout is the JSON-RPC
 // channel and belongs to the transport alone.
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	flags := flag.NewFlagSet("code-search-mcp", flag.ContinueOnError)
+	flags := flag.NewFlagSet("zoekt-mcp-server", flag.ContinueOnError)
 	// Usage text and parse errors are diagnostics. -version is the one thing
 	// here that belongs on stdout, and it writes there explicitly below.
 	flags.SetOutput(stderr)

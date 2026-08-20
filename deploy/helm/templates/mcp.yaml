@@ -1,4 +1,4 @@
-{{- $full := include "code-search-platform.fullname" . -}}
+{{- $full := include "zoekt-mcp-server.fullname" . -}}
 {{- if not (or .Values.mcp.auth.existingSecret .Values.mcp.auth.create) -}}
 {{- fail "mcp.auth: set mcp.auth.existingSecret, or mcp.auth.create with mcp.auth.token. Zoekt has no authentication of its own and this server is the only front door to it, so an unauthenticated deployment exposes every repository you indexed." -}}
 {{- end -}}
@@ -11,7 +11,7 @@ kind: Secret
 metadata:
   name: {{ $full }}-auth
   labels:
-    {{- include "code-search-platform.labels" . | nindent 4 }}
+    {{- include "zoekt-mcp-server.labels" . | nindent 4 }}
     app.kubernetes.io/component: mcp
 type: Opaque
 stringData:
@@ -25,19 +25,19 @@ kind: Deployment
 metadata:
   name: {{ $full }}-mcp
   labels:
-    {{- include "code-search-platform.labels" . | nindent 4 }}
+    {{- include "zoekt-mcp-server.labels" . | nindent 4 }}
     app.kubernetes.io/component: mcp
 spec:
   replicas: {{ .Values.mcp.replicas }}
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ include "code-search-platform.name" . }}
+      app.kubernetes.io/name: {{ include "zoekt-mcp-server.name" . }}
       app.kubernetes.io/instance: {{ .Release.Name }}
       app.kubernetes.io/component: mcp
   template:
     metadata:
       labels:
-        {{- include "code-search-platform.labels" . | nindent 8 }}
+        {{- include "zoekt-mcp-server.labels" . | nindent 8 }}
         app.kubernetes.io/component: mcp
       {{- with .Values.mcp.podAnnotations }}
       annotations:
@@ -55,25 +55,25 @@ spec:
           env:
             # The only address of Zoekt anyone needs. It is a ClusterIP name,
             # so this is also the reason the engine never needs an Ingress.
-            - name: CODE_SEARCH_ZOEKT_URL
+            - name: ZOEKT_MCP_UPSTREAM_URL
               value: "http://{{ $full }}-zoekt:{{ .Values.zoekt.service.port }}"
-            - name: CODE_SEARCH_TRANSPORT
+            - name: ZOEKT_MCP_TRANSPORT
               value: http
-            - name: CODE_SEARCH_ADDR
+            - name: ZOEKT_MCP_ADDR
               value: "0.0.0.0:{{ .Values.mcp.service.targetPort }}"
-            - name: CODE_SEARCH_CONTEXT_LINES
+            - name: ZOEKT_MCP_CONTEXT_LINES
               value: {{ .Values.mcp.contextLines | quote }}
-            - name: CODE_SEARCH_MAX_RESULTS
+            - name: ZOEKT_MCP_MAX_RESULTS
               value: {{ .Values.mcp.maxResults | quote }}
-            - name: CODE_SEARCH_TIMEOUT
+            - name: ZOEKT_MCP_TIMEOUT
               value: {{ .Values.mcp.timeout | quote }}
             # The server refuses to start on the http transport without this,
             # which is the point: there is no configuration of this chart that
             # quietly serves the corpus to anyone who can reach the Ingress.
-            - name: CODE_SEARCH_AUTH_TOKEN
+            - name: ZOEKT_MCP_AUTH_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "code-search-platform.authSecret" . }}
+                  name: {{ include "zoekt-mcp-server.authSecret" . }}
                   key: token
           ports:
             - name: http
@@ -104,7 +104,7 @@ kind: Service
 metadata:
   name: {{ $full }}-mcp
   labels:
-    {{- include "code-search-platform.labels" . | nindent 4 }}
+    {{- include "zoekt-mcp-server.labels" . | nindent 4 }}
     app.kubernetes.io/component: mcp
 spec:
   type: ClusterIP
@@ -113,6 +113,6 @@ spec:
       port: {{ .Values.mcp.service.port }}
       targetPort: http
   selector:
-    app.kubernetes.io/name: {{ include "code-search-platform.name" . }}
+    app.kubernetes.io/name: {{ include "zoekt-mcp-server.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: mcp

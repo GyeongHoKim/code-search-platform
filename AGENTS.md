@@ -5,7 +5,7 @@ Working notes for agents and humans changing this repository. For what the produ
 
 ## What this is
 
-One Go binary, `code-search-mcp`, that puts an indexed corpus of source code behind the Model
+One Go binary, `zoekt-mcp-server`, that puts an indexed corpus of source code behind the Model
 Context Protocol. It is a client of `zoekt-webserver` and nothing else.
 
 The repository also carries the layer around it — the indexer that mirrors a Git host and keeps
@@ -79,7 +79,7 @@ say plainly that it was not run.
 ## Layout
 
 ```text
-cmd/code-search-mcp/        entry point: flags, environment, transport selection
+cmd/zoekt-mcp-server/        entry point: flags, environment, transport selection
 internal/config/            environment parsing and validation
 internal/zoekt/             the Zoekt JSON API client -- HTTP lives here and nowhere else
 internal/render/            Zoekt types to the compact text a model reads
@@ -167,7 +167,7 @@ These will waste your afternoon if you do not know them. The vendored reference 
 - **`/api/search` only exists when `zoekt-webserver` was started with `-rpc`.** Without that flag
   the server answers HTML and every request fails in a way that looks like a routing bug.
 - **`Opts.NumContextLines` decides how large a result is.** It is the single most important knob
-  for token cost; it is surfaced as `CODE_SEARCH_CONTEXT_LINES` and defaults to 3.
+  for token cost; it is surfaced as `ZOEKT_MCP_CONTEXT_LINES` and defaults to 3.
 - **`sym:` only matches if the index was built with ctags available.** An index built without it
   answers symbol queries with silence, not an error, which reads as "no such symbol".
 - **`/api/list` takes a query too.** Listing repositories is a search with a `repo:` atom, not a
@@ -197,7 +197,7 @@ fix(zoekt): send NumContextLines with every search
 ```
 
 Scopes in use: `zoekt`, `mcp`, `tools`, `config`, `render`, `deploy`, `helm`, `ci`, `docs`,
-`deps`, `lint`. Reach for one of those before inventing a synonym. Subject is lower case, no
+`deps`, `lint`, `repo`. Reach for one of those before inventing a synonym. Subject is lower case, no
 trailing period, 72 characters for the whole header.
 
 ## Releasing

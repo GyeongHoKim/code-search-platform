@@ -13,13 +13,13 @@ indexer:
   # regex just keeps obvious noise out of the corpus.
   include: "^(platform|services)/"
   credentials:
-    # kubectl create secret generic gerrit-codesearch \
-    #   --from-literal=credentials='svc-codesearch:<gerrit-http-password>'
+    # kubectl create secret generic zoekt-mcp-gerrit \
+    #   --from-literal=credentials='svc-zoekt-mcp:<gerrit-http-password>'
     #
     # Note the password is the one Gerrit generates under Settings -> HTTP
     # Credentials, not an LDAP password, on any host whose
     # git_basic_auth_policy is HTTP.
-    existingSecret: gerrit-codesearch
+    existingSecret: zoekt-mcp-gerrit
 
 zoekt:
   persistence:
@@ -29,17 +29,17 @@ mcp:
   replicas: 2
   contextLines: 3
   auth:
-    # kubectl create secret generic code-search-token \
+    # kubectl create secret generic zoekt-mcp-token \
     #   --from-literal=token="$(openssl rand -base64 32)"
     #
     # Comma separate two tokens to rotate one out without breaking callers.
-    existingSecret: code-search-token
+    existingSecret: zoekt-mcp-token
 
 ingress:
   enabled: true
   kind: traefik-ingressroute
   host: search.example.com
-  path: /mcp/code-search
+  path: /mcp/zoekt-mcp
   entryPoints:
     - websecure
   tls:

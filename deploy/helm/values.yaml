@@ -1,4 +1,4 @@
-# Default values for code-search-platform.
+# Default values for zoekt-mcp-server.
 #
 # Everything site specific lives here. The chart itself carries no hostname, no
 # registry and no repository name, which is what lets the same chart run in a
@@ -117,7 +117,7 @@ indexer:
 # ---------------------------------------------------------------- mcp server
 mcp:
   image:
-    repository: ghcr.io/gyeonghokim/code-search-platform
+    repository: ghcr.io/gyeonghokim/zoekt-mcp-server
     # Empty means the chart's appVersion. Override with an immutable tag.
     tag: ""
     pullPolicy: IfNotPresent
@@ -137,7 +137,7 @@ mcp:
     # Name of an existing Secret with a "token" key. Preferred: it keeps the
     # value out of your values file and out of git.
     #
-    #   kubectl create secret generic code-search-token \
+    #   kubectl create secret generic zoekt-mcp-token \
     #     --from-literal=token="$(openssl rand -base64 32)"
     existingSecret: ""
     # Or let the chart create one. Convenient for a first run, and a bad idea

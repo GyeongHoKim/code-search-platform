@@ -1,11 +1,11 @@
-{{- $full := include "code-search-platform.fullname" . -}}
+{{- $full := include "zoekt-mcp-server.fullname" . -}}
 {{- if .Values.zoekt.persistence.enabled }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: {{ $full }}-index
   labels:
-    {{- include "code-search-platform.labels" . | nindent 4 }}
+    {{- include "zoekt-mcp-server.labels" . | nindent 4 }}
     app.kubernetes.io/component: zoekt
 spec:
   accessModes:
@@ -23,7 +23,7 @@ kind: Deployment
 metadata:
   name: {{ $full }}-zoekt
   labels:
-    {{- include "code-search-platform.labels" . | nindent 4 }}
+    {{- include "zoekt-mcp-server.labels" . | nindent 4 }}
     app.kubernetes.io/component: zoekt
 spec:
   # One replica on purpose. The index is a read-write volume that the CronJob
@@ -33,13 +33,13 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ include "code-search-platform.name" . }}
+      app.kubernetes.io/name: {{ include "zoekt-mcp-server.name" . }}
       app.kubernetes.io/instance: {{ .Release.Name }}
       app.kubernetes.io/component: zoekt
   template:
     metadata:
       labels:
-        {{- include "code-search-platform.labels" . | nindent 8 }}
+        {{- include "zoekt-mcp-server.labels" . | nindent 8 }}
         app.kubernetes.io/component: zoekt
     spec:
       {{- with .Values.imagePullSecrets }}
@@ -107,7 +107,7 @@ kind: Service
 metadata:
   name: {{ $full }}-zoekt
   labels:
-    {{- include "code-search-platform.labels" . | nindent 4 }}
+    {{- include "zoekt-mcp-server.labels" . | nindent 4 }}
     app.kubernetes.io/component: zoekt
 spec:
   # ClusterIP, always. Zoekt has no authentication of its own; the MCP server
@@ -119,6 +119,6 @@ spec:
       port: {{ .Values.zoekt.service.port }}
       targetPort: http
   selector:
-    app.kubernetes.io/name: {{ include "code-search-platform.name" . }}
+    app.kubernetes.io/name: {{ include "zoekt-mcp-server.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: zoekt

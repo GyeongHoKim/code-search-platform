@@ -1,4 +1,4 @@
-module github.com/GyeongHoKim/code-search-platform
+module github.com/GyeongHoKim/zoekt-mcp-server
 
 go 1.26.6
 

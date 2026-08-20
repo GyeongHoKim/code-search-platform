@@ -1,5 +1,5 @@
 <!-- markdownlint-disable MD033 -->
-# code-search-platform
+# zoekt-mcp-server
 
 Self-hosted code search for coding agents. Point it at your internal Git host and your agents can
 search every repository your team can read — from Claude Code, Codex, or anything else that speaks
@@ -33,7 +33,7 @@ flowchart LR
     subgraph Cluster["Kubernetes"]
         I["indexer<br/><i>CronJob</i>"]
         Z["zoekt-webserver<br/><i>ClusterIP only</i>"]
-        M["code-search-mcp<br/><i>the only exposed component</i>"]
+        M["zoekt-mcp-server<br/><i>the only exposed component</i>"]
         V[("index<br/>PVC")]
     end
 
@@ -56,7 +56,7 @@ Three moving parts, and the boundary between them is the design:
 | --- | --- | --- |
 | **indexer** | Mirrors your Git host, then rebuilds the Zoekt index | No |
 | **zoekt-webserver** | Trigram index and query engine | **No — ClusterIP only** |
-| **code-search-mcp** | Translates MCP tool calls into Zoekt queries and compacts the results | Yes, and only this |
+| **zoekt-mcp-server** | Translates MCP tool calls into Zoekt queries and compacts the results | Yes, and only this |
 
 Zoekt has no authentication of its own. Anything that can reach it can read every repository you
 indexed, so the chart never gives it an Ingress and neither should you. The MCP server is the single
@@ -65,25 +65,25 @@ front door, which is also what makes it the natural place for authentication and
 ## Quick start
 
 ```bash
-helm install code-search oci://ghcr.io/gyeonghokim/charts/code-search-platform \
-  --namespace code-search --create-namespace \
+helm install zoekt-mcp-server oci://ghcr.io/gyeonghokim/charts/zoekt-mcp-server \
+  --namespace zoekt-mcp --create-namespace \
   --set indexer.hostKind=gerrit \
   --set indexer.hostURL=https://gerrit.example.com \
-  --set indexer.credentials.existingSecret=git-codesearch
+  --set indexer.credentials.existingSecret=zoekt-mcp-git
 ```
 
 Or from a checkout, which is also how you review what it will create:
 
 ```bash
-helm template code-search deploy/helm -f deploy/helm/values-example-gerrit.yaml
-helm install code-search deploy/helm -f my-values.yaml -n code-search --create-namespace
+helm template zoekt-mcp-server deploy/helm -f deploy/helm/values-example-gerrit.yaml
+helm install zoekt-mcp-server deploy/helm -f my-values.yaml -n zoekt-mcp --create-namespace
 ```
 
 The index is empty until the indexer has run. To build it now rather than waiting for the schedule:
 
 ```bash
-kubectl -n code-search create job --from=cronjob/code-search-indexer first-index
-kubectl -n code-search logs -f job/first-index
+kubectl -n zoekt-mcp create job --from=cronjob/zoekt-mcp-server-indexer first-index
+kubectl -n zoekt-mcp logs -f job/first-index
 ```
 
 ## Connecting an agent
@@ -91,26 +91,26 @@ kubectl -n code-search logs -f job/first-index
 **Claude Code**
 
 ```bash
-claude mcp add --transport http code-search https://search.example.com/mcp/code-search \
-  --header "Authorization: Bearer $CODE_SEARCH_AUTH_TOKEN"
+claude mcp add --transport http zoekt-mcp https://search.example.com/mcp/zoekt-mcp \
+  --header "Authorization: Bearer $ZOEKT_MCP_AUTH_TOKEN"
 ```
 
 **Codex** — in `~/.codex/config.toml`:
 
 ```toml
-[mcp_servers.code-search]
-url = "https://search.example.com/mcp/code-search"
+[mcp_servers.zoekt-mcp]
+url = "https://search.example.com/mcp/zoekt-mcp"
 # Read at connect time and sent as "Authorization: Bearer ...", so the token
 # stays out of config.toml.
-bearer_token_env_var = "CODE_SEARCH_AUTH_TOKEN"
+bearer_token_env_var = "ZOEKT_MCP_AUTH_TOKEN"
 ```
 
 **Locally, over stdio** — for a client that spawns the binary itself:
 
 ```json
 {
-  "command": "code-search-mcp",
-  "env": { "CODE_SEARCH_ZOEKT_URL": "http://127.0.0.1:6070" }
+  "command": "zoekt-mcp-server",
+  "env": { "ZOEKT_MCP_UPSTREAM_URL": "http://127.0.0.1:6070" }
 }
 ```
 
@@ -133,7 +133,7 @@ on top of it.
 
 **No tool takes a result limit or a context-line count.** Those come from the environment, because
 the token budget belongs to whoever runs the server: a caller that could raise them would make
-`CODE_SEARCH_MAX_RESULTS` a default rather than a ceiling. An agent that wants more narrows the
+`ZOEKT_MCP_MAX_RESULTS` a default rather than a ceiling. An agent that wants more narrows the
 query or reads the file. When a search is truncated, the first line says so and how many files
 matched in total.
 
@@ -167,15 +167,15 @@ because those are the ones verified against a real host. For any other host, run
 
 ## Authentication
 
-The `http` transport refuses to start without `CODE_SEARCH_AUTH_TOKEN`, and answers `401` to any
+The `http` transport refuses to start without `ZOEKT_MCP_AUTH_TOKEN`, and answers `401` to any
 request that does not present it as a bearer token. There is no way to configure it off, because
 this server is the only front door to an index that has no authentication of its own.
 
 ```bash
-kubectl create secret generic code-search-token \
+kubectl create secret generic zoekt-mcp-token -n zoekt-mcp \
   --from-literal=token="$(openssl rand -base64 32)"
 
-helm upgrade code-search ... --set mcp.auth.existingSecret=code-search-token
+helm upgrade zoekt-mcp-server ... -n zoekt-mcp --set mcp.auth.existingSecret=zoekt-mcp-token
 ```
 
 The value is a **comma-separated list**, which is what makes rotation possible without a window in
@@ -202,7 +202,7 @@ into the index at all".
 
 Do it with a **service account whose read permissions are the whitelist**:
 
-1. Create a dedicated account on your Git host — `svc-codesearch` or similar.
+1. Create a dedicated account on your Git host — `svc-zoekt-mcp` or similar.
 2. Grant it read access to exactly the repositories you intend to expose to agents.
 3. Give the indexer that account's credentials.
 
@@ -221,15 +221,15 @@ The server itself is configured entirely by environment; the chart sets these fo
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `CODE_SEARCH_ZOEKT_URL` | *(required)* | Base URL of a `zoekt-webserver` started with `-rpc` |
-| `CODE_SEARCH_TRANSPORT` | `stdio` | `stdio` or `http` |
-| `CODE_SEARCH_ADDR` | `127.0.0.1:8080` | Listen address, `http` transport only |
-| `CODE_SEARCH_AUTH_TOKEN` | *(required for `http`)* | Comma-separated bearer tokens callers must present |
-| `CODE_SEARCH_TIMEOUT` | `30s` | Bounds a single request to Zoekt |
-| `CODE_SEARCH_MAX_RESULTS` | `50` | Caps file matches per search (max 500) |
-| `CODE_SEARCH_CONTEXT_LINES` | `3` | Lines around each match (max 50) |
+| `ZOEKT_MCP_UPSTREAM_URL` | *(required)* | Base URL of a `zoekt-webserver` started with `-rpc` |
+| `ZOEKT_MCP_TRANSPORT` | `stdio` | `stdio` or `http` |
+| `ZOEKT_MCP_ADDR` | `127.0.0.1:8080` | Listen address, `http` transport only |
+| `ZOEKT_MCP_AUTH_TOKEN` | *(required for `http`)* | Comma-separated bearer tokens callers must present |
+| `ZOEKT_MCP_TIMEOUT` | `30s` | Bounds a single request to Zoekt |
+| `ZOEKT_MCP_MAX_RESULTS` | `50` | Caps file matches per search (max 500) |
+| `ZOEKT_MCP_CONTEXT_LINES` | `3` | Lines around each match (max 50) |
 
-`CODE_SEARCH_CONTEXT_LINES` is the knob that decides what a search costs. Three lines is enough to
+`ZOEKT_MCP_CONTEXT_LINES` is the knob that decides what a search costs. Three lines is enough to
 recognise a match; ten is enough to read the function, and roughly triples the tokens.
 
 ## Development

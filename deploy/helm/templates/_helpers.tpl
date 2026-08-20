@@ -1,10 +1,10 @@
 {{/* Chart name, overridable. */}}
-{{- define "code-search-platform.name" -}}
+{{- define "zoekt-mcp-server.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
 {{/* Fully qualified release name. */}}
-{{- define "code-search-platform.fullname" -}}
+{{- define "zoekt-mcp-server.fullname" -}}
 {{- if .Values.fullnameOverride -}}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
 {{- else -}}
@@ -17,33 +17,33 @@
 {{- end -}}
 {{- end -}}
 
-{{- define "code-search-platform.labels" -}}
+{{- define "zoekt-mcp-server.labels" -}}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
-app.kubernetes.io/name: {{ include "code-search-platform.name" . }}
+app.kubernetes.io/name: {{ include "zoekt-mcp-server.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
-app.kubernetes.io/part-of: code-search-platform
+app.kubernetes.io/part-of: zoekt-mcp-server
 {{- end -}}
 
 {{/* The name of the Secret holding "user:password" for the Git host. */}}
-{{- define "code-search-platform.credentialsSecret" -}}
+{{- define "zoekt-mcp-server.credentialsSecret" -}}
 {{- if .Values.indexer.credentials.existingSecret -}}
 {{- .Values.indexer.credentials.existingSecret -}}
 {{- else -}}
-{{- printf "%s-git-credentials" (include "code-search-platform.fullname" .) -}}
+{{- printf "%s-git-credentials" (include "zoekt-mcp-server.fullname" .) -}}
 {{- end -}}
 {{- end -}}
 
-{{- define "code-search-platform.hasCredentials" -}}
+{{- define "zoekt-mcp-server.hasCredentials" -}}
 {{- if or .Values.indexer.credentials.existingSecret .Values.indexer.credentials.create -}}true{{- end -}}
 {{- end -}}
 
 {{/* The name of the Secret holding the MCP server's bearer token. */}}
-{{- define "code-search-platform.authSecret" -}}
+{{- define "zoekt-mcp-server.authSecret" -}}
 {{- if .Values.mcp.auth.existingSecret -}}
 {{- .Values.mcp.auth.existingSecret -}}
 {{- else -}}
-{{- printf "%s-auth" (include "code-search-platform.fullname" .) -}}
+{{- printf "%s-auth" (include "zoekt-mcp-server.fullname" .) -}}
 {{- end -}}
 {{- end -}}

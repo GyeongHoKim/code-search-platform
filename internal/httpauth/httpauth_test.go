@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/GyeongHoKim/code-search-platform/internal/httpauth"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/httpauth"
 )
 
 const (

@@ -7,8 +7,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/GyeongHoKim/code-search-platform/internal/render"
-	"github.com/GyeongHoKim/code-search-platform/internal/zoekt"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/render"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/zoekt"
 )
 
 type findSymbolInput struct {

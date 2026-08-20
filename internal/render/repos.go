@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/GyeongHoKim/code-search-platform/internal/zoekt"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/zoekt"
 )
 
 // columnGap separates the aligned columns of a repository listing.

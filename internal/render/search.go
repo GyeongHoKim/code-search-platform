@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/GyeongHoKim/code-search-platform/internal/zoekt"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/zoekt"
 )
 
 // Search renders a search result. query is echoed back when nothing matched.

@@ -6,14 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/GyeongHoKim/code-search-platform/internal/zoekt"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/zoekt"
 )
 
 // envAddr names a running zoekt-webserver to test against.
 //
 //	just dev-up
-//	CODE_SEARCH_TEST_ZOEKT_URL=http://127.0.0.1:6070 go test ./internal/mcpserver/...
-const envAddr = "CODE_SEARCH_TEST_ZOEKT_URL"
+//	ZOEKT_MCP_TEST_UPSTREAM_URL=http://127.0.0.1:6070 go test ./internal/mcpserver/...
+const envAddr = "ZOEKT_MCP_TEST_UPSTREAM_URL"
 
 // liveSearcher skips unless a real server was named, so `just test` stays
 // hermetic.
@@ -42,9 +42,13 @@ func TestLiveToolsAnswerFromARealIndex(t *testing.T) {
 		"list_repos":  {nil, "symbols="},
 		"search_code": {map[string]any{"query": "ErrMissingZoektURL"}, "src:internal/config/config.go"},
 		"find_symbol": {map[string]any{"symbol": "^Load$"}, "func Load(lookup Lookup)"},
+		// Anchored at the top of the file rather than at a window around some
+		// declaration: this case asked for the lines Load happened to sit on
+		// when it was written, and silently stopped covering Load the next
+		// time config.go grew above it. A package clause cannot drift.
 		"read_file": {
-			map[string]any{"repo": "src", "path": "internal/config/config.go", "start_line": 86, "end_line": 92},
-			"func Load(lookup Lookup)",
+			map[string]any{"repo": "src", "path": "internal/config/config.go", "start_line": 1, "end_line": 6},
+			"package config",
 		},
 	}
 

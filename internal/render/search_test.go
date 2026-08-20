@@ -5,8 +5,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
-	"github.com/GyeongHoKim/code-search-platform/internal/render"
-	"github.com/GyeongHoKim/code-search-platform/internal/zoekt"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/render"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/zoekt"
 )
 
 func TestOverlappingContextWindowsMergeIntoOneSpan(t *testing.T) {

@@ -84,7 +84,7 @@ jobs:
       - run: helm lint deploy/helm
 
       # A chart that lints but does not render is a chart nobody can install.
-      - run: helm template code-search deploy/helm -f deploy/helm/values-example-gerrit.yaml
+      - run: helm template zoekt-mcp-server deploy/helm -f deploy/helm/values-example-gerrit.yaml
 
   commits:
     name: Commit messages

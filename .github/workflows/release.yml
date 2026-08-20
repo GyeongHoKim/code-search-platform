@@ -122,4 +122,4 @@ jobs:
           set -euo pipefail
           echo "${{ secrets.GITHUB_TOKEN }}"             | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
           version="${TAG#v}"
-          helm push "dist/code-search-platform-${version}.tgz"             oci://ghcr.io/${{ github.repository_owner }}/charts
+          helm push "dist/zoekt-mcp-server-${version}.tgz"             oci://ghcr.io/${{ github.repository_owner }}/charts

@@ -4,14 +4,14 @@ authentication of its own, so putting an Ingress in front of it would publish
 every indexed repository to anyone who can reach the host.
 */}}
 {{- if .Values.ingress.enabled }}
-{{- $full := include "code-search-platform.fullname" . -}}
+{{- $full := include "zoekt-mcp-server.fullname" . -}}
 {{- if eq .Values.ingress.kind "traefik-ingressroute" }}
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
   name: {{ $full }}-mcp
   labels:
-    {{- include "code-search-platform.labels" . | nindent 4 }}
+    {{- include "zoekt-mcp-server.labels" . | nindent 4 }}
     app.kubernetes.io/component: mcp
   {{- with .Values.ingress.annotations }}
   annotations:
@@ -38,7 +38,7 @@ kind: Ingress
 metadata:
   name: {{ $full }}-mcp
   labels:
-    {{- include "code-search-platform.labels" . | nindent 4 }}
+    {{- include "zoekt-mcp-server.labels" . | nindent 4 }}
     app.kubernetes.io/component: mcp
   {{- with .Values.ingress.annotations }}
   annotations:

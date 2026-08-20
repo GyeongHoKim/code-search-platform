@@ -12,13 +12,13 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/GyeongHoKim/code-search-platform/internal/config"
-	"github.com/GyeongHoKim/code-search-platform/internal/version"
-	"github.com/GyeongHoKim/code-search-platform/internal/zoekt"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/config"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/version"
+	"github.com/GyeongHoKim/zoekt-mcp-server/internal/zoekt"
 )
 
 // ServerName is the name reported to clients during initialisation.
-const ServerName = "code-search-platform"
+const ServerName = "zoekt-mcp-server"
 
 // Searcher is the part of the Zoekt client these tools use.
 type Searcher interface {
