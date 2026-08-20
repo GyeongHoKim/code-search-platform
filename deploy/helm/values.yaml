@@ -128,26 +128,29 @@ mcp:
     port: 80
     targetPort: 8080
 
-  # The bearer token callers must present. Required: this server is the only
-  # front door to an index that has no authentication of its own, so the chart
-  # refuses to render without one rather than deploying an open corpus.
+  # The OAuth 2.1 authorization server callers authenticate against. Required:
+  # this server is the only front door to an index that has no authentication
+  # of its own, so the chart refuses to render without an issuer and an
+  # audience rather than deploying an open corpus.
   #
-  # Generate it with: openssl rand -base64 32
-  auth:
-    # Name of an existing Secret with a "token" key. Preferred: it keeps the
-    # value out of your values file and out of git.
-    #
-    #   kubectl create secret generic zoekt-mcp-token \
-    #     --from-literal=token="$(openssl rand -base64 32)"
-    existingSecret: ""
-    # Or let the chart create one. Convenient for a first run, and a bad idea
-    # for anything else -- the token ends up in your values file, in Helm's
-    # release history, and in whatever CI logged the deploy.
-    create: false
-    # A comma separated list is accepted, which is what makes rotation possible
-    # without a window in which every caller is broken: add the new token, let
-    # callers move to it, then drop the old one.
-    token: ""
+  # None of these are secret -- they are the same information a client needs
+  # to authenticate, published at /.well-known/oauth-protected-resource.
+  oidc:
+    # Base URL of the OAuth 2.1 / OIDC authorization server, e.g.
+    # https://dex.example.com. Its /.well-known/oauth-authorization-server or
+    # /.well-known/openid-configuration is fetched at startup to discover the
+    # signing keys.
+    issuerURL: ""
+    # This server's own canonical resource identifier: the value a caller's
+    # token must carry as its aud claim, and the "resource" this server
+    # advertises at /.well-known/oauth-protected-resource. Typically the
+    # externally reachable MCP endpoint, e.g.
+    # https://search.example.com/mcp/zoekt-mcp
+    audience: ""
+    # Optional. Skips discovery and fetches signing keys from this URL
+    # directly -- only needed if the authorization server does not publish
+    # jwks_uri in its metadata.
+    jwksURL: ""
 
   # How many lines surround each match. The single most important knob for how
   # many tokens a search costs the agent that ran it.

@@ -158,8 +158,9 @@ helm-template:
 # Lint the Helm chart.
 #
 # With the example values, like helm-template. The defaults deliberately do not
-# render -- mcp.auth has no default, so that no one deploys the corpus without
-# a token -- and linting them reports that refusal as if it were a fault.
+# render -- mcp.oidc has no default, so that no one deploys the corpus without
+# an authorization server -- and linting them reports that refusal as if it
+# were a fault.
 helm-lint:
     helm lint deploy/helm -f deploy/helm/values-example-gerrit.yaml
 

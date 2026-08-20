@@ -28,12 +28,9 @@ zoekt:
 mcp:
   replicas: 2
   contextLines: 3
-  auth:
-    # kubectl create secret generic zoekt-mcp-token \
-    #   --from-literal=token="$(openssl rand -base64 32)"
-    #
-    # Comma separate two tokens to rotate one out without breaking callers.
-    existingSecret: zoekt-mcp-token
+  oidc:
+    issuerURL: https://dex.example.com
+    audience: https://search.example.com/mcp/zoekt-mcp
 
 ingress:
   enabled: true
