@@ -62,9 +62,6 @@ var (
 	ErrInvalidDuration = errors.New("value is not a duration")
 	// ErrMissingAddr means the http transport was selected without a listen address.
 	ErrMissingAddr = errors.New("listen address is required for the http transport")
-	// ErrMissingAuthToken means the http transport was selected without a token
-	// to check callers against.
-	ErrMissingAuthToken = errors.New("auth token is required for the http transport")
 	// ErrMissingOIDCIssuerURL means the http transport was selected without an
 	// OAuth 2.1 authorization server to verify bearer tokens against.
 	ErrMissingOIDCIssuerURL = errors.New("oidc issuer url is required for the http transport")
@@ -100,10 +97,6 @@ type Config struct {
 	// OIDCJWKSURL overrides authorization-server-metadata discovery of the
 	// signing-key endpoint. Empty means discover it from OIDCIssuerURL.
 	OIDCJWKSURL string
-	// AuthTokens are the bearer tokens the http transport accepts. Several are
-	// live at once so that one can be rotated without a window in which every
-	// caller is broken.
-	AuthTokens []string
 	// Timeout bounds a single request to Zoekt.
 	Timeout time.Duration
 	// MaxResults caps how many file matches one search returns.
@@ -132,11 +125,8 @@ func Load(lookup Lookup) (*Config, error) {
 	if err := loadTransport(lookup, cfg); err != nil {
 		return nil, err
 	}
-	// After loadTransport: whether a token is required depends on which
-	// transport was selected.
-	if err := loadAuthTokens(lookup, cfg); err != nil {
-		return nil, err
-	}
+	// After loadTransport: whether an authorization server is required depends
+	// on which transport was selected.
 	if err := loadOIDC(lookup, cfg); err != nil {
 		return nil, err
 	}
@@ -171,36 +161,52 @@ func loadZoektURL(lookup Lookup, cfg *Config) error {
 // loadOIDC reads the OAuth 2.1 authorization server and this server's own
 // resource identifier, used by the http transport to verify bearer tokens.
 //
-// Not yet required for the http transport here: the http transport is still
-// gated by loadAuthTokens's static token until the OAuth swap replaces it, so
-// this only validates the format of whichever of these three variables were
-// set.
+// The http transport is the one that puts this server on a network, and this
+// server is the only front door to an index that has no authentication of its
+// own. Starting without an issuer and an audience there would expose the
+// whole corpus, so it is a startup failure rather than a warning. Stdio has
+// no network to guard: the client spawned this process, so it is already
+// whoever owns it.
 func loadOIDC(lookup Lookup, cfg *Config) error {
-	if raw, ok := lookup(EnvPrefix + "OIDC_ISSUER_URL"); ok && strings.TrimSpace(raw) != "" {
-		issuer := strings.TrimSpace(raw)
-		if !validHTTPURL(issuer) {
-			return fmt.Errorf("%s=%q: %w", EnvPrefix+"OIDC_ISSUER_URL", issuer, ErrInvalidOIDCIssuerURL)
-		}
-		cfg.OIDCIssuerURL = strings.TrimSuffix(issuer, "/")
+	issuer, err := loadOIDCURL(lookup, cfg, EnvPrefix+"OIDC_ISSUER_URL", true, ErrMissingOIDCIssuerURL, ErrInvalidOIDCIssuerURL)
+	if err != nil {
+		return err
 	}
+	cfg.OIDCIssuerURL = strings.TrimSuffix(issuer, "/")
 
-	if raw, ok := lookup(EnvPrefix + "OIDC_AUDIENCE"); ok && strings.TrimSpace(raw) != "" {
-		audience := strings.TrimSpace(raw)
-		if !validHTTPURL(audience) {
-			return fmt.Errorf("%s=%q: %w", EnvPrefix+"OIDC_AUDIENCE", audience, ErrInvalidOIDCAudience)
-		}
-		cfg.OIDCAudience = audience
+	audience, err := loadOIDCURL(lookup, cfg, EnvPrefix+"OIDC_AUDIENCE", true, ErrMissingOIDCAudience, ErrInvalidOIDCAudience)
+	if err != nil {
+		return err
 	}
+	cfg.OIDCAudience = audience
 
-	if raw, ok := lookup(EnvPrefix + "OIDC_JWKS_URL"); ok && strings.TrimSpace(raw) != "" {
-		jwksURL := strings.TrimSpace(raw)
-		if !validHTTPURL(jwksURL) {
-			return fmt.Errorf("%s=%q: %w", EnvPrefix+"OIDC_JWKS_URL", jwksURL, ErrInvalidOIDCJWKSURL)
-		}
-		cfg.OIDCJWKSURL = jwksURL
+	jwksURL, err := loadOIDCURL(lookup, cfg, EnvPrefix+"OIDC_JWKS_URL", false, nil, ErrInvalidOIDCJWKSURL)
+	if err != nil {
+		return err
 	}
+	cfg.OIDCJWKSURL = jwksURL
 
 	return nil
+}
+
+// loadOIDCURL reads key, trimmed, validating it as an http(s) URL when
+// present. If required, it additionally fails with missingErr when the http
+// transport was selected and the variable is unset or blank.
+func loadOIDCURL(lookup Lookup, cfg *Config, key string, required bool, missingErr, invalidErr error) (string, error) {
+	raw, ok := lookup(key)
+	raw = strings.TrimSpace(raw)
+
+	if required && cfg.Transport == TransportHTTP && (!ok || raw == "") {
+		return "", fmt.Errorf("%s: %w", key, missingErr)
+	}
+	if raw == "" {
+		return "", nil
+	}
+	if !validHTTPURL(raw) {
+		return "", fmt.Errorf("%s=%q: %w", key, raw, invalidErr)
+	}
+
+	return raw, nil
 }
 
 func loadTransport(lookup Lookup, cfg *Config) error {
@@ -220,30 +226,6 @@ func loadTransport(lookup Lookup, cfg *Config) error {
 	}
 	if cfg.Transport == TransportHTTP && cfg.Addr == "" {
 		return fmt.Errorf("%s: %w", EnvPrefix+"ADDR", ErrMissingAddr)
-	}
-
-	return nil
-}
-
-// loadAuthTokens reads the comma separated list of bearer tokens the http
-// transport accepts.
-//
-// The http transport is the one that puts this server on a network, and this
-// server is the only front door to an index that has no authentication of its
-// own. Starting without a token there would expose the whole corpus, so it is
-// a startup failure rather than a warning. Stdio has no network to guard: the
-// client spawned this process, so it is already whoever owns it.
-func loadAuthTokens(lookup Lookup, cfg *Config) error {
-	raw, _ := lookup(EnvPrefix + "AUTH_TOKEN")
-
-	for token := range strings.SplitSeq(raw, ",") {
-		if trimmed := strings.TrimSpace(token); trimmed != "" {
-			cfg.AuthTokens = append(cfg.AuthTokens, trimmed)
-		}
-	}
-
-	if cfg.Transport == TransportHTTP && len(cfg.AuthTokens) == 0 {
-		return fmt.Errorf("%s: %w", EnvPrefix+"AUTH_TOKEN", ErrMissingAuthToken)
 	}
 
 	return nil

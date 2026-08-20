@@ -3,6 +3,7 @@ module github.com/GyeongHoKim/zoekt-mcp-server
 go 1.26.6
 
 require (
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/go-cmp v0.7.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 )
