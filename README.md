@@ -92,7 +92,7 @@ kubectl -n zoekt-mcp logs -f job/first-index
 
 ```bash
 claude mcp add --transport http zoekt-mcp https://search.example.com/mcp/zoekt-mcp \
-  --header "Authorization: Bearer $ZOEKT_MCP_AUTH_TOKEN"
+  --header "Authorization: Bearer $ZOEKT_MCP_TOKEN"
 ```
 
 **Codex** — in `~/.codex/config.toml`:
@@ -102,8 +102,14 @@ claude mcp add --transport http zoekt-mcp https://search.example.com/mcp/zoekt-m
 url = "https://search.example.com/mcp/zoekt-mcp"
 # Read at connect time and sent as "Authorization: Bearer ...", so the token
 # stays out of config.toml.
-bearer_token_env_var = "ZOEKT_MCP_AUTH_TOKEN"
+bearer_token_env_var = "ZOEKT_MCP_TOKEN"
 ```
+
+`$ZOEKT_MCP_TOKEN` is a short-lived access token obtained from whatever OAuth 2.1 grant your
+identity provider offers a machine client — client-credentials is the simplest fit for a CLI
+integration like this. There is no operator-issued secret to distribute: any client that can
+authenticate against your IdP as an authorized caller can obtain one on its own. See
+[Authentication](#authentication).
 
 **Locally, over stdio** — for a client that spawns the binary itself:
 
@@ -167,30 +173,39 @@ because those are the ones verified against a real host. For any other host, run
 
 ## Authentication
 
-The `http` transport refuses to start without `ZOEKT_MCP_AUTH_TOKEN`, and answers `401` to any
-request that does not present it as a bearer token. There is no way to configure it off, because
-this server is the only front door to an index that has no authentication of its own.
+The `http` transport is an OAuth 2.1 [Resource Server](https://datatracker.ietf.org/doc/rfc9728),
+which is what the MCP specification asks for. It refuses to start without
+`ZOEKT_MCP_OIDC_ISSUER_URL` and `ZOEKT_MCP_OIDC_AUDIENCE`, because this server is the only front
+door to an index that has no authentication of its own.
+
+At startup it discovers the authorization server's signing keys (via
+`ZOEKT_MCP_OIDC_ISSUER_URL`'s `/.well-known/oauth-authorization-server` or
+`/.well-known/openid-configuration`, or directly from `ZOEKT_MCP_OIDC_JWKS_URL` if the
+authorization server does not publish one), and serves its own
+`/.well-known/oauth-protected-resource` metadata (RFC 9728) so a client can discover where to
+authenticate. Every request's bearer token is verified as a JWT: signature against the discovered
+keys, `iss` equal to the issuer, `aud` containing the audience, not expired, and signed with RS256
+or ES256 — never trusting whatever algorithm the token's own header claims, which is what closes
+the classic algorithm-confusion hole.
 
 ```bash
-kubectl create secret generic zoekt-mcp-token -n zoekt-mcp \
-  --from-literal=token="$(openssl rand -base64 32)"
-
-helm upgrade zoekt-mcp-server ... -n zoekt-mcp --set mcp.auth.existingSecret=zoekt-mcp-token
+helm upgrade zoekt-mcp-server ... -n zoekt-mcp \
+  --set mcp.oidc.issuerURL=https://dex.example.com \
+  --set mcp.oidc.audience=https://search.example.com/mcp/zoekt-mcp
 ```
 
-The value is a **comma-separated list**, which is what makes rotation possible without a window in
-which every caller is broken: add the new token, let engineers move to it, then drop the old one.
+Neither value is secret — an OAuth client needs both to authenticate at all, and RFC 9728 publishes
+them anyway. There is nothing here for this chart to keep in a Secret.
 
-Two things this deliberately does not do. It does not rate limit — a static token is guessable at
-whatever rate your front door allows, so bound it there (`nginx.ingress.kubernetes.io/limit-rps` or
-your Traefik middleware). And it does not identify anyone: every caller holding the token is the
-same caller, so the audit trail is "the token", not "who".
+PKCE, login, and token issuance all happen between the MCP client and your identity provider; this
+server never sees a credential, only the bearer token that flow ends with. Practically, that means
+an existing IdP that already speaks OAuth 2.1/OIDC (Dex, Keycloak, Okta, …) can usually be pointed
+at directly — nothing here needs to be aware of how a caller authenticated, only that the token it
+presents was issued, for this server, by that IdP.
 
-Both of those are answered by OAuth 2.1, which is what the MCP specification actually asks for — the
-server becomes a Resource Server validating tokens from your IdP. The wiring here is already the
-SDK's `auth.RequireBearerToken`, so that change replaces one `auth.TokenVerifier` in
-`internal/httpauth` and touches nothing else. Until an authorisation server exists to point at, a
-static token is the honest amount of machinery.
+One thing this deliberately does not do: rate limit. A stolen still-valid token can be replayed
+until it expires, so bound request rate at your front door (`nginx.ingress.kubernetes.io/limit-rps`
+or your Traefik middleware) regardless of authentication scheme.
 
 ## Access control
 
@@ -224,7 +239,9 @@ The server itself is configured entirely by environment; the chart sets these fo
 | `ZOEKT_MCP_UPSTREAM_URL` | *(required)* | Base URL of a `zoekt-webserver` started with `-rpc` |
 | `ZOEKT_MCP_TRANSPORT` | `stdio` | `stdio` or `http` |
 | `ZOEKT_MCP_ADDR` | `127.0.0.1:8080` | Listen address, `http` transport only |
-| `ZOEKT_MCP_AUTH_TOKEN` | *(required for `http`)* | Comma-separated bearer tokens callers must present |
+| `ZOEKT_MCP_OIDC_ISSUER_URL` | *(required for `http`)* | Base URL of the OAuth 2.1 authorization server |
+| `ZOEKT_MCP_OIDC_AUDIENCE` | *(required for `http`)* | This server's resource identifier; also the required `aud` claim |
+| `ZOEKT_MCP_OIDC_JWKS_URL` | *(optional)* | Overrides discovery of the signing-key endpoint |
 | `ZOEKT_MCP_TIMEOUT` | `30s` | Bounds a single request to Zoekt |
 | `ZOEKT_MCP_MAX_RESULTS` | `50` | Caps file matches per search (max 500) |
 | `ZOEKT_MCP_CONTEXT_LINES` | `3` | Lines around each match (max 50) |
@@ -242,6 +259,22 @@ just ci                      # everything CI runs
 ```
 
 `just --list` shows the rest. Every recipe runs on Linux, macOS and Windows.
+
+`just dev-up` only stands up Zoekt, so it never exercises the `http` transport's OAuth guard. To
+try that locally, run a throwaway identity provider and point the server at it:
+
+```bash
+docker run --rm -p 5556:5556 dexidp/dex:<pinned tag> serve /path/to/dev-dex-config.yaml
+
+ZOEKT_MCP_UPSTREAM_URL=http://127.0.0.1:6070 \
+ZOEKT_MCP_TRANSPORT=http \
+ZOEKT_MCP_ADDR=127.0.0.1:8081 \
+ZOEKT_MCP_OIDC_ISSUER_URL=http://127.0.0.1:5556/dex \
+ZOEKT_MCP_OIDC_AUDIENCE=http://127.0.0.1:8081/mcp/zoekt-mcp \
+just run
+
+curl -s http://127.0.0.1:8081/.well-known/oauth-protected-resource | jq .
+```
 
 Contributor notes, conventions and the layering rules are in [AGENTS.md](AGENTS.md) — written for
 agents, and just as usable by people.

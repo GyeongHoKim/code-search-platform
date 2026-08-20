@@ -90,7 +90,7 @@ kubectl -n zoekt-mcp logs -f job/first-index
 
 ```bash
 claude mcp add --transport http zoekt-mcp https://search.example.com/mcp/zoekt-mcp \
-  --header "Authorization: Bearer $ZOEKT_MCP_AUTH_TOKEN"
+  --header "Authorization: Bearer $ZOEKT_MCP_TOKEN"
 ```
 
 **Codex** — `~/.codex/config.toml`:
@@ -100,8 +100,12 @@ claude mcp add --transport http zoekt-mcp https://search.example.com/mcp/zoekt-m
 url = "https://search.example.com/mcp/zoekt-mcp"
 # 연결 시점에 읽어 "Authorization: Bearer ..." 로 보냅니다. 토큰이
 # config.toml 에 남지 않습니다.
-bearer_token_env_var = "ZOEKT_MCP_AUTH_TOKEN"
+bearer_token_env_var = "ZOEKT_MCP_TOKEN"
 ```
+
+`$ZOEKT_MCP_TOKEN` 은 IdP 가 제공하는 OAuth 2.1 그랜트(머신 클라이언트라면 client-credentials 가 가장
+간단합니다)로 얻는 단기 액세스 토큰입니다. 운영자가 배포하는 시크릿이 따로 없습니다 — IdP 에
+인증받은 클라이언트라면 누구나 스스로 발급받을 수 있습니다. [인증](#인증) 참고.
 
 **로컬 stdio** — 클라이언트가 바이너리를 직접 실행하는 경우:
 
@@ -164,29 +168,35 @@ Bitbucket은 `-project` 를 받습니다. 차트에 직접 배선한 것은 Gerr
 
 ## 인증
 
-`http` 전송은 `ZOEKT_MCP_AUTH_TOKEN` 없이는 기동을 거부하고, 그 토큰을 bearer로 제시하지 않은
-요청에는 `401` 을 돌려줍니다. 끄는 설정은 없습니다. 이 서버가 자체 인증이 없는 인덱스로 향하는
-유일한 정문이기 때문입니다.
+`http` 전송은 OAuth 2.1 [Resource Server](https://datatracker.ietf.org/doc/rfc9728)이며, 이는 MCP
+명세가 실제로 요구하는 형태입니다. `ZOEKT_MCP_OIDC_ISSUER_URL` 과 `ZOEKT_MCP_OIDC_AUDIENCE` 없이는
+기동을 거부합니다. 이 서버가 자체 인증이 없는 인덱스로 향하는 유일한 정문이기 때문입니다.
+
+기동 시 인가 서버의 서명 키를 탐색하고(`ZOEKT_MCP_OIDC_ISSUER_URL` 의
+`/.well-known/oauth-authorization-server` 또는 `/.well-known/openid-configuration`, 인가 서버가
+이를 노출하지 않으면 `ZOEKT_MCP_OIDC_JWKS_URL` 을 직접 사용), 클라이언트가 어디서 인증해야 하는지
+알 수 있도록 자체 `/.well-known/oauth-protected-resource` 메타데이터(RFC 9728)를 제공합니다. 모든
+요청의 bearer 토큰은 JWT로 검증됩니다: 탐색한 키로 서명 확인, `iss` 가 인가 서버와 일치, `aud` 에
+audience 포함, 만료되지 않음, RS256 또는 ES256으로 서명됨 — 토큰 헤더가 주장하는 알고리즘을 그대로
+믿지 않는 것이 algorithm-confusion 공격을 막는 핵심입니다.
 
 ```bash
-kubectl create secret generic zoekt-mcp-token -n zoekt-mcp \
-  --from-literal=token="$(openssl rand -base64 32)"
-
-helm upgrade zoekt-mcp-server ... -n zoekt-mcp --set mcp.auth.existingSecret=zoekt-mcp-token
+helm upgrade zoekt-mcp-server ... -n zoekt-mcp \
+  --set mcp.oidc.issuerURL=https://dex.example.com \
+  --set mcp.oidc.audience=https://search.example.com/mcp/zoekt-mcp
 ```
 
-값은 **콤마로 구분된 목록**입니다. 이것이 모든 호출자가 한꺼번에 끊기는 구간 없이 토큰을 회전할 수
-있게 해 줍니다 — 새 토큰을 추가하고, 엔지니어들이 옮겨 가게 한 뒤, 옛 토큰을 제거합니다.
+둘 다 비밀 값이 아닙니다 — OAuth 클라이언트가 인증하려면 어차피 둘 다 알아야 하고, RFC 9728이 그대로
+공개하기도 합니다. 이 차트가 Secret으로 보관할 것이 없습니다.
 
-의도적으로 하지 않는 것이 둘 있습니다. **레이트 리밋을 걸지 않습니다** — 정적 토큰은 정문이 허용하는
-속도만큼 추측당하므로, 제한은 거기서 거세요 (`nginx.ingress.kubernetes.io/limit-rps` 또는 Traefik
-미들웨어). 그리고 **누구인지 식별하지 않습니다** — 토큰을 가진 모든 호출자는 동일한 호출자이므로,
-감사 기록에 남는 것은 "누가"가 아니라 "그 토큰"입니다.
+PKCE, 로그인, 토큰 발급은 모두 MCP 클라이언트와 사내 IdP 사이에서 일어납니다. 이 서버는 자격 증명을
+전혀 보지 않고, 그 플로우가 끝난 뒤의 bearer 토큰만 봅니다. 실무적으로는 이미 OAuth 2.1/OIDC를
+지원하는 기존 IdP(Dex, Keycloak, Okta 등)를 대부분 그대로 가리키기만 하면 됩니다 — 이 서버는 호출자가
+어떻게 인증했는지가 아니라, 제시한 토큰이 그 IdP가 이 서버 앞으로 발급한 것인지만 알면 됩니다.
 
-둘 다 OAuth 2.1이 답이고, MCP 명세가 실제로 요구하는 형태도 그것입니다 — 서버가 사내 IdP의 토큰을
-검증하는 Resource Server가 됩니다. 지금 배선도 이미 SDK의 `auth.RequireBearerToken` 이므로, 그
-전환은 `internal/httpauth` 의 `auth.TokenVerifier` 하나를 교체하는 것으로 끝나고 나머지는 그대로
-남습니다. 가리킬 인가 서버가 생기기 전까지는 정적 토큰이 정직한 분량의 장치입니다.
+의도적으로 하지 않는 것이 하나 있습니다: **레이트 리밋을 걸지 않습니다** — 탈취당한 유효 토큰은 만료
+전까지 재사용될 수 있으므로, 인증 방식과 무관하게 정문에서 속도를 제한하세요
+(`nginx.ingress.kubernetes.io/limit-rps` 또는 Traefik 미들웨어).
 
 ## 접근 제어
 
@@ -219,7 +229,9 @@ Zoekt 인덱스에는 리포지터리별 권한 개념이 없습니다. 한번 �
 | `ZOEKT_MCP_UPSTREAM_URL` | *(필수)* | `-rpc` 로 띄운 `zoekt-webserver` 의 base URL |
 | `ZOEKT_MCP_TRANSPORT` | `stdio` | `stdio` 또는 `http` |
 | `ZOEKT_MCP_ADDR` | `127.0.0.1:8080` | 리슨 주소, `http` 전송에만 사용 |
-| `ZOEKT_MCP_AUTH_TOKEN` | *(`http` 에서 필수)* | 호출자가 제시해야 하는 bearer 토큰, 콤마 구분 |
+| `ZOEKT_MCP_OIDC_ISSUER_URL` | *(`http` 에서 필수)* | OAuth 2.1 인가 서버의 base URL |
+| `ZOEKT_MCP_OIDC_AUDIENCE` | *(`http` 에서 필수)* | 이 서버의 리소스 식별자이자 필수 `aud` claim |
+| `ZOEKT_MCP_OIDC_JWKS_URL` | *(선택)* | 서명 키 엔드포인트 탐색을 대체 |
 | `ZOEKT_MCP_TIMEOUT` | `30s` | Zoekt 요청 하나의 시간 제한 |
 | `ZOEKT_MCP_MAX_RESULTS` | `50` | 검색당 파일 매치 상한 (최대 500) |
 | `ZOEKT_MCP_CONTEXT_LINES` | `3` | 매치 주변 라인 수 (최대 50) |
@@ -237,6 +249,22 @@ just ci                      # CI가 돌리는 전부
 ```
 
 나머지는 `just --list` 로 확인하세요. 모든 레시피는 Linux·macOS·Windows에서 동작합니다.
+
+`just dev-up` 은 Zoekt만 띄우므로 `http` 전송의 OAuth 가드는 건드리지 않습니다. 로컬에서
+확인하려면 임시 IdP를 하나 띄우고 서버를 그쪽으로 가리키세요:
+
+```bash
+docker run --rm -p 5556:5556 dexidp/dex:<고정 태그> serve /path/to/dev-dex-config.yaml
+
+ZOEKT_MCP_UPSTREAM_URL=http://127.0.0.1:6070 \
+ZOEKT_MCP_TRANSPORT=http \
+ZOEKT_MCP_ADDR=127.0.0.1:8081 \
+ZOEKT_MCP_OIDC_ISSUER_URL=http://127.0.0.1:5556/dex \
+ZOEKT_MCP_OIDC_AUDIENCE=http://127.0.0.1:8081/mcp/zoekt-mcp \
+just run
+
+curl -s http://127.0.0.1:8081/.well-known/oauth-protected-resource | jq .
+```
 
 기여 시 지켜야 할 규약과 레이어 규칙은 [AGENTS.md](AGENTS.md)에 있습니다 — 에이전트를 위해 썼지만
 사람이 읽기에도 그대로 쓸 수 있습니다.
