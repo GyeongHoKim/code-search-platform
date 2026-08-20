@@ -16,12 +16,6 @@ The usual answer is to paste files into the context window. That does not scale 
 and it puts the burden of knowing *which* file to paste on the person who asked the question — which
 is exactly the thing they wanted the agent to work out.
 
-There are already MCP servers that wrap [Zoekt](https://github.com/sourcegraph/zoekt). What is
-missing is everything around one: mirroring hundreds of repositories off a corporate Git host,
-keeping the index fresh, running it on a cluster, and exposing it to agents without handing every
-engineer read access to code they were never granted. That plumbing is the actual work, and it is
-what this repository is.
-
 ## Architecture
 
 ```mermaid
@@ -49,8 +43,6 @@ flowchart LR
     A -->|"MCP over HTTP"| M
     C -->|"MCP over HTTP"| M
 ```
-
-Three moving parts, and the boundary between them is the design:
 
 | Component | What it does | Exposed? |
 | --- | --- | --- |
@@ -198,14 +190,109 @@ Neither value is secret — an OAuth client needs both to authenticate at all, a
 them anyway. There is nothing here for this chart to keep in a Secret.
 
 PKCE, login, and token issuance all happen between the MCP client and your identity provider; this
-server never sees a credential, only the bearer token that flow ends with. Practically, that means
-an existing IdP that already speaks OAuth 2.1/OIDC (Dex, Keycloak, Okta, …) can usually be pointed
-at directly — nothing here needs to be aware of how a caller authenticated, only that the token it
-presents was issued, for this server, by that IdP.
+server never sees a credential, only the bearer token that flow ends with. Nothing here needs to be
+aware of how a caller authenticated, only that the token it presents was issued, for this server, by
+that IdP — so an existing OAuth 2.1/OIDC IdP needs no code-level integration work.
+
+**It does need IdP-side configuration, though.** No IdP hands out an audience-scoped token by
+default — every one tested against this server issues `aud: <the caller's own client_id>` until
+told otherwise, which this server's `aud`-must-contain-`ZOEKT_MCP_OIDC_AUDIENCE` check rejects. See
+[Identity provider setup](#identity-provider-setup) for the exact steps, verified against Dex,
+Keycloak and Authentik.
 
 One thing this deliberately does not do: rate limit. A stolen still-valid token can be replayed
 until it expires, so bound request rate at your front door (`nginx.ingress.kubernetes.io/limit-rps`
 or your Traefik middleware) regardless of authentication scheme.
+
+## Identity provider setup
+
+Getting a *working* token — one this server's `aud` check accepts — takes one extra step beyond
+pointing `ZOEKT_MCP_OIDC_ISSUER_URL` at your IdP: telling the IdP to put your `ZOEKT_MCP_OIDC_AUDIENCE`
+value into the token's `aud` claim. That step is IdP-specific and, on every IdP below, off by
+default. These three recipes were verified against real instances of each.
+
+### Dex
+
+Dex's access tokens carry `aud: <client_id>` by default — not a resource identifier. Getting a
+resource-scoped `aud` uses Dex's own [cross-client trust](https://dexidp.io/docs/configuration/client-config/#cross-client-trust-and-authorized-party) mechanism: register the MCP server itself as a second static client,
+*using the resource identifier as that client's ID* (Dex client IDs are just opaque strings, so a
+URL is a legal one), and have the caller's client request it as an audience.
+
+```yaml
+# dex-config.yaml
+staticClients:
+  - id: your-agent-client
+    secret: your-agent-secret
+    redirectURIs:
+      - "http://127.0.0.1:8081/callback"
+  - id: "https://search.example.com/mcp/zoekt-mcp"   # the resource identifier itself, as a client ID
+    secret: unused-by-resource-clients
+    public: true
+    # Trust runs peer -> caller, not the other way around: this client must
+    # list the *caller's* client ID, not the reverse.
+    trustedPeers:
+      - your-agent-client
+```
+
+The caller then requests the scope `audience:server:client_id:<resource-id>` alongside its normal
+scopes:
+
+```bash
+curl -s -X POST https://dex.example.com/dex/token \
+  -u your-agent-client:your-agent-secret \
+  -d grant_type=password \
+  -d username=... -d password=... \
+  --data-urlencode "scope=openid profile email audience:server:client_id:https://search.example.com/mcp/zoekt-mcp"
+```
+
+The resulting `access_token`'s `aud` is an array containing both the resource identifier and the
+caller's own client ID — which is what `jwt.WithAudience` (see `internal/httpauth/claims.go`)
+checks against. (Whichever grant your agent actually uses — password is shown only because it is
+the simplest one to demonstrate from a shell.)
+
+### Keycloak
+
+Issuer: `http://host:8080/realms/<realm>`; discovery at `<issuer>/.well-known/openid-configuration`.
+Keycloak does not yet support the RFC 8707 `resource` request parameter
+([keycloak/keycloak#41526](https://github.com/keycloak/keycloak/issues/41526)), so audience
+restriction goes through a **client scope with an Audience mapper** instead — this is
+[documented by Keycloak itself for MCP servers specifically](https://www.keycloak.org/securing-apps/mcp-authz-server):
+
+1. **Client Scopes → Create client scope** — name it something like `mcp:zoekt`, type **Optional**.
+2. In that scope: **Mappers → Configure a new mapper → Audience**.
+3. Set **"Included Custom Audience"** (not "Included Client Audience", which only accepts another
+   registered client) to the exact value of `ZOEKT_MCP_OIDC_AUDIENCE`.
+4. **Clients → your client → Client Scopes** — assign the scope as **Optional**.
+5. The caller must request it explicitly: `scope=openid ... mcp:zoekt`. Left off, `aud` comes back
+   without the resource identifier and this server rejects the token.
+
+### Authentik
+
+Issuer/JWKS: `https://authentik.company/application/o/<slug>/.well-known/openid-configuration`.
+
+**Set a Signing Key first, or nothing else here matters.** With no Signing Key selected, an
+Authentik Provider signs tokens **HS256** — symmetrically, keyed on the client secret. This
+server's algorithm allow-list (`internal/httpauth/claims.go`'s `allowedAlgs`) only accepts
+RS256/ES256 by design, to close the classic algorithm-confusion hole, so an unmodified Authentik
+provider's tokens are rejected on signature algorithm alone, before `aud` is ever checked. Fix:
+in the Provider's configuration, explicitly select an RSA or EC **Signing Key**.
+
+For the `aud` claim itself: Authentik's [Scope Mappings](https://docs.goauthentik.io/add-secure-apps/providers/property-mappings/)
+are Python expressions returning a dict merged into the token's claims, which is the general
+mechanism used for every custom claim Authentik supports —
+
+```python
+# Customization -> Property Mappings -> new Scope Mapping, attached to the provider
+return {"aud": "https://search.example.com/mcp/zoekt-mcp"}
+```
+
+— but unlike the Dex and Keycloak recipes above, this repository has not confirmed that Authentik
+lets a scope mapping override the *reserved* `aud` claim rather than just adding custom ones.
+**Decode the access token you actually get back and check its `aud` before trusting this step**:
+
+```bash
+python3 -c "import base64,json,sys; print(json.dumps(json.loads(base64.urlsafe_b64decode(sys.argv[1].split('.')[1] + '=='))))" "$ACCESS_TOKEN"
+```
 
 ## Access control
 
@@ -261,16 +348,19 @@ just ci                      # everything CI runs
 `just --list` shows the rest. Every recipe runs on Linux, macOS and Windows.
 
 `just dev-up` only stands up Zoekt, so it never exercises the `http` transport's OAuth guard. To
-try that locally, run a throwaway identity provider and point the server at it:
+try that locally, run a throwaway Dex with the config from
+[Identity provider setup → Dex](#dex), which is what actually gets you a token this server accepts
+rather than just a metadata endpoint to look at:
 
 ```bash
-docker run --rm -p 5556:5556 dexidp/dex:<pinned tag> serve /path/to/dev-dex-config.yaml
+docker run --rm -p 5556:5556 -v "$PWD/dex-config.yaml:/etc/dex/config.yaml" dexidp/dex:latest \
+  serve /etc/dex/config.yaml
 
 ZOEKT_MCP_UPSTREAM_URL=http://127.0.0.1:6070 \
 ZOEKT_MCP_TRANSPORT=http \
 ZOEKT_MCP_ADDR=127.0.0.1:8081 \
 ZOEKT_MCP_OIDC_ISSUER_URL=http://127.0.0.1:5556/dex \
-ZOEKT_MCP_OIDC_AUDIENCE=http://127.0.0.1:8081/mcp/zoekt-mcp \
+ZOEKT_MCP_OIDC_AUDIENCE=https://search.example.com/mcp/zoekt-mcp \
 just run
 
 curl -s http://127.0.0.1:8081/.well-known/oauth-protected-resource | jq .
