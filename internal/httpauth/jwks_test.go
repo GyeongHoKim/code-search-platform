@@ -1,7 +1,6 @@
 package httpauth
 
 import (
-	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -99,7 +98,7 @@ func TestKeySetParsesRSAAndVerifiesASignedToken(t *testing.T) {
 	}
 
 	if _, verifyErr := jwt.Parse(signed, func(_ *jwt.Token) (any, error) {
-		return keys.key(context.Background(), "rsa-1")
+		return keys.key(t.Context(), "rsa-1")
 	}); verifyErr != nil {
 		t.Errorf("verifying rsa-signed token against the cached key: %v", verifyErr)
 	}
@@ -124,7 +123,7 @@ func TestKeySetParsesECAndVerifiesASignedToken(t *testing.T) {
 	}
 
 	if _, verifyErr := jwt.Parse(signed, func(_ *jwt.Token) (any, error) {
-		return keys.key(context.Background(), "ec-1")
+		return keys.key(t.Context(), "ec-1")
 	}); verifyErr != nil {
 		t.Errorf("verifying ec-signed token against the cached key: %v", verifyErr)
 	}
