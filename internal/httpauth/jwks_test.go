@@ -7,9 +7,11 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -61,16 +63,16 @@ func ecJWK(t *testing.T) (jwk, *ecdsa.PrivateKey) {
 // serve its key set.
 type fakeJWKS struct {
 	server   *httptest.Server
-	requests *int
+	requests *atomic.Int64
 }
 
 // jwksServer serves set as JSON.
 func jwksServer(t *testing.T, set jwkSet) fakeJWKS {
 	t.Helper()
 
-	count := 0
+	var count atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		count++
+		count.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(set) //nolint:errcheck // test server, nothing to react to
 	}))
@@ -162,15 +164,15 @@ func TestKeySetCacheHitAvoidsASecondFetch(t *testing.T) {
 	if err := keys.prime(t.Context()); err != nil {
 		t.Fatalf("prime() error = %v, want nil", err)
 	}
-	if *fake.requests != 1 {
-		t.Fatalf("requests after priming fetch = %d, want 1", *fake.requests)
+	if fake.requests.Load() != 1 {
+		t.Fatalf("requests after priming fetch = %d, want 1", fake.requests.Load())
 	}
 
 	if _, err := keys.key(t.Context(), "rsa-1"); err != nil {
 		t.Fatalf("key() error = %v, want nil", err)
 	}
-	if *fake.requests != 1 {
-		t.Errorf("requests after a cache hit = %d, want 1", *fake.requests)
+	if fake.requests.Load() != 1 {
+		t.Errorf("requests after a cache hit = %d, want 1", fake.requests.Load())
 	}
 }
 
@@ -184,26 +186,26 @@ func TestKeySetRefetchesOnceOnAnUnknownKID(t *testing.T) {
 	if err := keys.prime(t.Context()); err != nil {
 		t.Fatalf("prime() error = %v, want nil", err)
 	}
-	if *fake.requests != 1 {
-		t.Fatalf("requests after priming fetch = %d, want 1", *fake.requests)
+	if fake.requests.Load() != 1 {
+		t.Fatalf("requests after priming fetch = %d, want 1", fake.requests.Load())
 	}
 
 	// Unknown kid: triggers exactly one refetch (the key still won't be
 	// found, since the server always answers the same set).
-	if _, err := keys.key(t.Context(), "does-not-exist"); err == nil {
-		t.Fatal("key() error = nil, want an error for an unknown kid")
+	if _, err := keys.key(t.Context(), "does-not-exist"); !errors.Is(err, errUnknownKID) {
+		t.Fatalf("key() error = %v, want errUnknownKID", err)
 	}
-	if *fake.requests != 2 {
-		t.Errorf("requests after one unknown-kid lookup = %d, want 2", *fake.requests)
+	if fake.requests.Load() != 2 {
+		t.Errorf("requests after one unknown-kid lookup = %d, want 2", fake.requests.Load())
 	}
 
 	// A second unknown-kid lookup right after the first must not trigger a
 	// second refetch: jwksMinRefetchInterval has not elapsed.
-	if _, err := keys.key(t.Context(), "still-does-not-exist"); err == nil {
-		t.Fatal("key() error = nil, want an error for an unknown kid")
+	if _, err := keys.key(t.Context(), "still-does-not-exist"); !errors.Is(err, errUnknownKID) {
+		t.Fatalf("key() error = %v, want errUnknownKID", err)
 	}
-	if *fake.requests != 2 {
-		t.Errorf("requests after a debounced unknown-kid lookup = %d, want 2", *fake.requests)
+	if fake.requests.Load() != 2 {
+		t.Errorf("requests after a debounced unknown-kid lookup = %d, want 2", fake.requests.Load())
 	}
 }
 
