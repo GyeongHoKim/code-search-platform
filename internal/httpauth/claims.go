@@ -32,11 +32,13 @@ func verifyJWT(keys *keySet, issuer, audience string, skew time.Duration) auth.T
 
 		parsed, err := jwt.ParseWithClaims(token, &claims, keyfunc(ctx, keys),
 			jwt.WithValidMethods(allowedAlgs),
-			jwt.WithIssuer(issuer),
 			jwt.WithAudience(audience),
 			jwt.WithExpirationRequired(),
 			jwt.WithLeeway(skew),
 		)
+		if err == nil {
+			err = checkIssuer(claims, issuer)
+		}
 
 		switch {
 		case err == nil && parsed.Valid:
@@ -58,6 +60,24 @@ func verifyJWT(keys *keySet, issuer, audience string, skew time.Duration) auth.T
 			return nil, fmt.Errorf("bearer token: %w: %w", err, auth.ErrInvalidToken)
 		}
 	}
+}
+
+// checkIssuer is jwt.WithIssuer minus its sensitivity to a trailing slash.
+// Issuer identifiers are compared as strings, and config normalises the
+// configured one by trimming "/", but some authorization servers (Authentik:
+// "https://host/application/o/<slug>/") mint iss with the slash. Either form
+// names the same server, so neither may cause a rejection. A missing iss is
+// still one.
+func checkIssuer(claims jwt.MapClaims, issuer string) error {
+	iss, err := claims.GetIssuer()
+	if err != nil {
+		return fmt.Errorf("%w: %w", jwt.ErrTokenInvalidIssuer, err)
+	}
+	if strings.TrimSuffix(iss, "/") != strings.TrimSuffix(issuer, "/") {
+		return fmt.Errorf("%w: %q", jwt.ErrTokenInvalidIssuer, iss)
+	}
+
+	return nil
 }
 
 // jwtKeyfuncError wraps an error keyfunc returns for a reason that is this

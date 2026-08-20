@@ -136,6 +136,30 @@ func TestGuardAcceptsAValidToken(t *testing.T) {
 	}
 }
 
+// Authentik's issuer is "https://host/application/o/<slug>/" and its tokens
+// carry that trailing slash in iss, while config normalises IssuerURL by
+// trimming it. The comparison must not turn that into a rejection.
+func TestGuardAcceptsAnIssuerThatDiffersOnlyByATrailingSlash(t *testing.T) {
+	t.Parallel()
+
+	i := newIDP(t)
+	guard := newGuard(t, i)
+
+	var ran bool
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", http.NoBody)
+	req.Header.Set("Authorization", "Bearer "+i.token(t, jwt.MapClaims{"iss": i.server.URL + "/"}))
+	rec := httptest.NewRecorder()
+
+	guard.RequireToken(reached(&ran)).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	if !ran {
+		t.Error("the guarded handler did not run")
+	}
+}
+
 func TestGuardRejects(t *testing.T) {
 	t.Parallel()
 
