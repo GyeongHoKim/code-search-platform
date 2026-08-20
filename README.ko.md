@@ -58,8 +58,13 @@ helm install zoekt-mcp-server oci://ghcr.io/gyeonghokim/charts/zoekt-mcp-server 
   --namespace zoekt-mcp --create-namespace \
   --set indexer.hostKind=gerrit \
   --set indexer.hostURL=https://gerrit.example.com \
-  --set indexer.credentials.existingSecret=zoekt-mcp-git
+  --set indexer.credentials.existingSecret=zoekt-mcp-git \
+  --set mcp.oidc.issuerURL=https://dex.example.com \
+  --set mcp.oidc.audience=https://search.example.com/mcp/zoekt-mcp
 ```
+
+`mcp.oidc.*` 두 값은 선택이 아닙니다. 토큰을 검증할 인가 서버가 없으면 `http` 전송은 기동하지
+않습니다. [인증](#인증)을 보세요.
 
 체크아웃한 소스에서 바로 설치할 수도 있습니다.
 
@@ -166,8 +171,9 @@ MCP 명세가 요구하는 형태가 바로 이것입니다. `ZOEKT_MCP_OIDC_ISS
 문이 이 서버이기 때문입니다.
 
 기동할 때 인가 서버의 서명 키를 찾습니다. `ZOEKT_MCP_OIDC_ISSUER_URL` 아래의
-`/.well-known/oauth-authorization-server` 또는 `/.well-known/openid-configuration`을 읽고, 인가
-서버가 이를 제공하지 않으면 `ZOEKT_MCP_OIDC_JWKS_URL`을 그대로 씁니다. 그리고 클라이언트가 어디서
+`/.well-known/oauth-authorization-server` 또는 `/.well-known/openid-configuration`을 읽습니다.
+`ZOEKT_MCP_OIDC_JWKS_URL`이 설정돼 있으면 탐색을 아예 건너뛰고 그 URL에서 키를 가져옵니다. 인가
+서버가 메타데이터를 제공하지 않거나 `jwks_uri`가 잘못된 경우를 위한 값입니다. 그리고 클라이언트가 어디서
 인증받아야 하는지 알 수 있도록 자체 `/.well-known/oauth-protected-resource` 메타데이터(RFC 9728)를
 제공합니다. 모든 요청의 bearer 토큰은 JWT로 검증합니다. 찾아 둔 키로 서명을 확인하고, `iss`가 인가
 서버와 같은지, `aud`에 audience가 들어 있는지, 만료되지 않았는지, RS256 또는 ES256으로 서명됐는지
@@ -202,7 +208,8 @@ PKCE, 로그인, 토큰 발급은 전부 MCP 클라이언트와 사내 IdP 사�
 이 서버의 `aud` 검증을 통과하는, 실제로 *동작하는* 토큰을 받으려면 `ZOEKT_MCP_OIDC_ISSUER_URL`을
 IdP로 가리키는 것 말고 한 단계가 더 필요합니다. IdP가 `ZOEKT_MCP_OIDC_AUDIENCE` 값을 토큰의 `aud`
 클레임에 넣도록 설정해야 합니다. 방법은 IdP마다 다르고, 아래 세 IdP 모두 기본값으로는 꺼져 있습니다.
-세 가지 모두 실제 인스턴스로 검증한 내용입니다.
+Dex는 실제 인스턴스로 끝까지 검증했고, Keycloak과 Authentik은 각 공식 문서로만 확인했습니다.
+Authentik은 아래에 별도 주의 사항이 있습니다.
 
 ### Dex
 
@@ -229,19 +236,28 @@ staticClients:
       - your-agent-client
 ```
 
-호출자는 평소 scope에 `audience:server:client_id:<resource-id>` scope를 덧붙여 요청합니다.
+호출자는 평소 scope에 `audience:server:client_id:<resource-id>` scope를 덧붙여 요청합니다. MCP
+클라이언트는 authorization-code + PKCE 플로우 안에서 이를 알아서 처리합니다. 손으로 재현하려면
+브라우저에서 인가 URL을 열어 로그인한 뒤, 돌려받은 code를 토큰으로 교환하면 됩니다.
 
 ```bash
+# 1. 브라우저: 로그인하고 리다이렉트 URL의 `code`를 복사합니다.
+open "https://dex.example.com/dex/auth?client_id=your-agent-client&response_type=code\
+&redirect_uri=http://127.0.0.1:8081/callback\
+&scope=openid%20profile%20email%20audience:server:client_id:https://search.example.com/mcp/zoekt-mcp"
+
+# 2. 셸: code를 교환합니다. client secret은 명령줄이 아니라 환경변수에서 읽습니다.
 curl -s -X POST https://dex.example.com/dex/token \
-  -u your-agent-client:your-agent-secret \
-  -d grant_type=password \
-  -d username=... -d password=... \
-  --data-urlencode "scope=openid profile email audience:server:client_id:https://search.example.com/mcp/zoekt-mcp"
+  -u "your-agent-client:$DEX_CLIENT_SECRET" \
+  -d grant_type=authorization_code \
+  -d redirect_uri=http://127.0.0.1:8081/callback \
+  -d code="$CODE"
 ```
 
 이렇게 받은 `access_token`의 `aud`는 리소스 식별자와 호출자 자신의 client ID를 둘 다 담은 배열이
 됩니다. `jwt.WithAudience`(`internal/httpauth/claims.go` 참고)가 검사하는 게 바로 이 값입니다.
-어떤 grant를 쓰든 상관없습니다. password grant를 예로 든 건 셸에서 보여 주기 가장 간단해서입니다.
+scope만 요청하면 Dex가 지원하는 어떤 grant든 똑같이 동작합니다. password grant는 RFC 9700이
+금지하므로 일부러 싣지 않았습니다.
 
 ### Keycloak
 

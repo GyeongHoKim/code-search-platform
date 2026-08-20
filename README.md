@@ -61,8 +61,13 @@ helm install zoekt-mcp-server oci://ghcr.io/gyeonghokim/charts/zoekt-mcp-server 
   --namespace zoekt-mcp --create-namespace \
   --set indexer.hostKind=gerrit \
   --set indexer.hostURL=https://gerrit.example.com \
-  --set indexer.credentials.existingSecret=zoekt-mcp-git
+  --set indexer.credentials.existingSecret=zoekt-mcp-git \
+  --set mcp.oidc.issuerURL=https://dex.example.com \
+  --set mcp.oidc.audience=https://search.example.com/mcp/zoekt-mcp
 ```
+
+The two `mcp.oidc.*` values are not optional: the `http` transport refuses to start without an
+authorization server to verify tokens against. See [Authentication](#authentication).
 
 Or from a checkout, which is also how you review what it will create:
 
@@ -170,10 +175,11 @@ which is what the MCP specification asks for. It refuses to start without
 `ZOEKT_MCP_OIDC_ISSUER_URL` and `ZOEKT_MCP_OIDC_AUDIENCE`, because this server is the only front
 door to an index that has no authentication of its own.
 
-At startup it discovers the authorization server's signing keys (via
+At startup it discovers the authorization server's signing keys via
 `ZOEKT_MCP_OIDC_ISSUER_URL`'s `/.well-known/oauth-authorization-server` or
-`/.well-known/openid-configuration`, or directly from `ZOEKT_MCP_OIDC_JWKS_URL` if the
-authorization server does not publish one), and serves its own
+`/.well-known/openid-configuration`. If `ZOEKT_MCP_OIDC_JWKS_URL` is set, discovery is skipped
+entirely and the keys are fetched from that URL — for authorization servers that publish no
+metadata, or publish the wrong `jwks_uri`. It also serves its own
 `/.well-known/oauth-protected-resource` metadata (RFC 9728) so a client can discover where to
 authenticate. Every request's bearer token is verified as a JWT: signature against the discovered
 keys, `iss` equal to the issuer, `aud` containing the audience, not expired, and signed with RS256
@@ -209,7 +215,9 @@ or your Traefik middleware) regardless of authentication scheme.
 Getting a *working* token — one this server's `aud` check accepts — takes one extra step beyond
 pointing `ZOEKT_MCP_OIDC_ISSUER_URL` at your IdP: telling the IdP to put your `ZOEKT_MCP_OIDC_AUDIENCE`
 value into the token's `aud` claim. That step is IdP-specific and, on every IdP below, off by
-default. These three recipes were verified against real instances of each.
+default. The Dex recipe was verified end to end against a running instance; the Keycloak and
+Authentik recipes were checked against their current documentation only, and the Authentik one
+carries a caveat of its own below.
 
 ### Dex
 
@@ -235,20 +243,27 @@ staticClients:
 ```
 
 The caller then requests the scope `audience:server:client_id:<resource-id>` alongside its normal
-scopes:
+scopes. An MCP client does this for you inside its authorization-code + PKCE flow; to reproduce it
+by hand, open the authorization URL in a browser, log in, and exchange the returned code:
 
 ```bash
+# 1. Browser: log in and copy the `code` from the redirect.
+open "https://dex.example.com/dex/auth?client_id=your-agent-client&response_type=code\
+&redirect_uri=http://127.0.0.1:8081/callback\
+&scope=openid%20profile%20email%20audience:server:client_id:https://search.example.com/mcp/zoekt-mcp"
+
+# 2. Shell: exchange it. The client secret comes from the environment, not the command line.
 curl -s -X POST https://dex.example.com/dex/token \
-  -u your-agent-client:your-agent-secret \
-  -d grant_type=password \
-  -d username=... -d password=... \
-  --data-urlencode "scope=openid profile email audience:server:client_id:https://search.example.com/mcp/zoekt-mcp"
+  -u "your-agent-client:$DEX_CLIENT_SECRET" \
+  -d grant_type=authorization_code \
+  -d redirect_uri=http://127.0.0.1:8081/callback \
+  -d code="$CODE"
 ```
 
 The resulting `access_token`'s `aud` is an array containing both the resource identifier and the
 caller's own client ID — which is what `jwt.WithAudience` (see `internal/httpauth/claims.go`)
-checks against. (Whichever grant your agent actually uses — password is shown only because it is
-the simplest one to demonstrate from a shell.)
+checks against. Any grant Dex supports works the same way as long as the scope is requested; the
+password grant is deliberately not shown, since RFC 9700 forbids it.
 
 ### Keycloak
 
